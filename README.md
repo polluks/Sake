@@ -1,4 +1,4 @@
-# Sake — Atari Kernel Emulator for AmigaOS
+# <ins>S</ins>ake <ins>A</ins>tari <ins>K</ins>ernel <ins>E</ins>mulator for AmigaOS
 
 Sake maps Atari ST system calls to native AmigaOS libraries:
 - **GEMDOS** (Trap #1) → `dos.library` / `exec.library`
