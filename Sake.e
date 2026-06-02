@@ -1276,9 +1276,14 @@ DEF gem_mouse_ibeam_mask[16]:ARRAY OF VALUE
 DEF gem_mouse_point_data[16]:ARRAY OF VALUE
 DEF gem_mouse_point_mask[16]:ARRAY OF VALUE
 
--> AES global arrays (as per GEM AES parameter block spec)
+-> ---------------------------------------------------------------------------
+-> PortablE IS NATIVE wrappers for AmigaOS C functions (avoids inline NATIVE)
+-> ---------------------------------------------------------------------------
 
--> AES global arrays (as per GEM AES parameter block spec)
+PROC gem_SetPointer(window:PTR TO window, data:ARRAY OF VALUE, w:VALUE, h:VALUE, x:VALUE, y:VALUE) IS NATIVE { SetPointer((struct Window *)} window {, (UWORD *)} data {, (short)} w {, (short)} h {, (short)} x {, (short)} y {); } ENDNATIVE
+PROC gem_ClearPointer(window:PTR TO window) IS NATIVE { ClearPointer((struct Window *)} window {); } ENDNATIVE
+PROC gem_TextFontInit16(f:PTR TO textfont) IS NATIVE { struct TextFont *tf = (struct TextFont *)gem_font_8x16; tf->tf_Message.mn_ReplyPort=NULL; tf->tf_Message.mn_Length=sizeof(struct TextFont); tf->tf_YSize=16; tf->tf_Style=0; tf->tf_Flags=0; tf->tf_XSize=8; tf->tf_Baseline=13; tf->tf_BoldSmear=0; tf->tf_Accessors=0; tf->tf_LoChar=0; tf->tf_HiChar=255; tf->tf_CharData=(APTR)gem_font_data_8x16; tf->tf_Modulo=8; tf->tf_CharLoc=(APTR)gem_font_loc_8x16; tf->tf_CharSpace=(APTR)gem_font_width_8x16; tf->tf_CharKern=NULL; } ENDNATIVE
+PROC gem_TextFontInit8(f:PTR TO textfont) IS NATIVE { struct TextFont *tf = (struct TextFont *)gem_font_8x8; tf->tf_Message.mn_ReplyPort=NULL; tf->tf_Message.mn_Length=sizeof(struct TextFont); tf->tf_YSize=8; tf->tf_Style=0; tf->tf_Flags=0; tf->tf_XSize=8; tf->tf_Baseline=7; tf->tf_BoldSmear=0; tf->tf_Accessors=0; tf->tf_LoChar=0; tf->tf_HiChar=255; tf->tf_CharData=(APTR)gem_font_data_8x8; tf->tf_Modulo=8; tf->tf_CharLoc=(APTR)gem_font_loc_8x8; tf->tf_CharSpace=(APTR)gem_font_width_8x8; tf->tf_CharKern=NULL; } ENDNATIVE
 
 -> AES global arrays (as per GEM AES parameter block spec)
 DEF gem_control[12]:ARRAY OF VALUE -> control array
@@ -1771,7 +1776,7 @@ PROC gem_menu_register()
 ENDPROC
 
 PROC gem_menu_popup()
-  DEF menu_id, x, y, i
+  DEF menu_id, x, y
   menu_id := ctx[3]
   x := ctx[4]
   y := ctx[5]
@@ -2172,95 +2177,68 @@ CONST M_USERDEF = 6, M_SPECIAL = 7
 
 -> Initialize predefined mouse pointer shapes
 PROC gem_mouse_init()
-  -> Fill arrow pointer (standard arrow, simple right-up shape)
-  NATIVE {
-    unsigned short *data = (unsigned short *)gem_mouse_arrow_data;
-    unsigned short *mask = (unsigned short *)gem_mouse_arrow_mask;
-    int i;
-    /* Standard arrow sprite data (16x16) */
-    unsigned short arrow_data[16] = {
-      0x0000,0x7C00,0x7200,0x7100,
-      0x7080,0x7040,0x7020,0x7C10,
-      0x4608,0x4304,0x4182,0x40E1,
-      0x4070,0x4038,0x401C,0x4000
-    };
-    unsigned short arrow_mask[16] = {
-      0x0000,0xFC00,0xF600,0xF300,
-      0xF180,0xF0C0,0xF060,0xFC30,
-      0xEF18,0xC78C,0xC3C6,0xC1E3,
-      0xC0F0,0xC078,0xC03C,0xC000
-    };
-    for (i = 0; i < 16; i++) {
-      data[i] = arrow_data[i];
-      mask[i] = arrow_mask[i];
-    }
-  } ENDNATIVE
-  -> Fill busy pointer (hourglass shape)
-  NATIVE {
-    unsigned short *data = (unsigned short *)gem_mouse_busy_data;
-    unsigned short *mask = (unsigned short *)gem_mouse_busy_mask;
-    int i;
-    unsigned short busy_data[16] = {
-      0x0000,0x7FFE,0x6006,0x300C,
-      0x1818,0x0C30,0x0660,0x03C0,
-      0x0660,0x0C30,0x1818,0x300C,
-      0x6006,0x7FFE,0x0000,0x0000
-    };
-    unsigned short busy_mask[16] = {
-      0x0000,0xFFFF,0xF00F,0x781E,
-      0x3C3C,0x1E78,0x0FF0,0x07E0,
-      0x0FF0,0x1E78,0x3C3C,0x781E,
-      0xF00F,0xFFFF,0x0000,0x0000
-    };
-    for (i = 0; i < 16; i++) {
-      data[i] = busy_data[i];
-      mask[i] = busy_mask[i];
-    }
-  } ENDNATIVE
-  -> Fill I-beam pointer (vertical bar)
-  NATIVE {
-    unsigned short *data = (unsigned short *)gem_mouse_ibeam_data;
-    unsigned short *mask = (unsigned short *)gem_mouse_ibeam_mask;
-    int i;
-    unsigned short ibeam_data[16] = {
-      0x0000,0x0180,0x0180,0x0180,
-      0x0180,0x0180,0x0180,0x0180,
-      0x0180,0x0180,0x0180,0x0180,
-      0x0180,0x0180,0x0000,0x0000
-    };
-    unsigned short ibeam_mask[16] = {
-      0x0000,0x03C0,0x03C0,0x03C0,
-      0x03C0,0x03C0,0x03C0,0x03C0,
-      0x03C0,0x03C0,0x03C0,0x03C0,
-      0x03C0,0x03C0,0x0000,0x0000
-    };
-    for (i = 0; i < 16; i++) {
-      data[i] = ibeam_data[i];
-      mask[i] = ibeam_mask[i];
-    }
-  } ENDNATIVE
-  -> Fill pointing finger
-  NATIVE {
-    unsigned short *data = (unsigned short *)gem_mouse_point_data;
-    unsigned short *mask = (unsigned short *)gem_mouse_point_mask;
-    int i;
-    unsigned short point_data[16] = {
-      0x0000,0x0E00,0x0A00,0x0A00,
-      0x0A00,0x0A00,0x0A00,0x0A00,
-      0x0A00,0x0A00,0x0E00,0x1C00,
-      0x3800,0x7000,0x2000,0x0000
-    };
-    unsigned short point_mask[16] = {
-      0x0000,0x1F00,0x1F00,0x1F00,
-      0x1F00,0x1F00,0x1F00,0x1F00,
-      0x1F00,0x1F00,0x1F00,0x3E00,
-      0x7C00,0xF800,0x7000,0x0000
-    };
-    for (i = 0; i < 16; i++) {
-      data[i] = point_data[i];
-      mask[i] = point_mask[i];
-    }
-  } ENDNATIVE
+  DEF i
+  -> Arrow sprite data (16x16)
+  gem_mouse_arrow_data[0] := $0000;  gem_mouse_arrow_mask[0] := $0000
+  gem_mouse_arrow_data[1] := $7C00;  gem_mouse_arrow_mask[1] := $FC00
+  gem_mouse_arrow_data[2] := $7200;  gem_mouse_arrow_mask[2] := $F600
+  gem_mouse_arrow_data[3] := $7100;  gem_mouse_arrow_mask[3] := $F300
+  gem_mouse_arrow_data[4] := $7080;  gem_mouse_arrow_mask[4] := $F180
+  gem_mouse_arrow_data[5] := $7040;  gem_mouse_arrow_mask[5] := $F0C0
+  gem_mouse_arrow_data[6] := $7020;  gem_mouse_arrow_mask[6] := $F060
+  gem_mouse_arrow_data[7] := $7C10;  gem_mouse_arrow_mask[7] := $FC30
+  gem_mouse_arrow_data[8] := $4608;  gem_mouse_arrow_mask[8] := $EF18
+  gem_mouse_arrow_data[9] := $4304;  gem_mouse_arrow_mask[9] := $C78C
+  gem_mouse_arrow_data[10] := $4182; gem_mouse_arrow_mask[10] := $C3C6
+  gem_mouse_arrow_data[11] := $40E1; gem_mouse_arrow_mask[11] := $C1E3
+  gem_mouse_arrow_data[12] := $4070; gem_mouse_arrow_mask[12] := $C0F0
+  gem_mouse_arrow_data[13] := $4038; gem_mouse_arrow_mask[13] := $C078
+  gem_mouse_arrow_data[14] := $401C; gem_mouse_arrow_mask[14] := $C03C
+  gem_mouse_arrow_data[15] := $4000; gem_mouse_arrow_mask[15] := $C000
+
+  -> Busy/hourglass sprite data (16x16)
+  gem_mouse_busy_data[0] := $0000;  gem_mouse_busy_mask[0] := $0000
+  gem_mouse_busy_data[1] := $7FFE;  gem_mouse_busy_mask[1] := $FFFF
+  gem_mouse_busy_data[2] := $6006;  gem_mouse_busy_mask[2] := $F00F
+  gem_mouse_busy_data[3] := $300C;  gem_mouse_busy_mask[3] := $781E
+  gem_mouse_busy_data[4] := $1818;  gem_mouse_busy_mask[4] := $3C3C
+  gem_mouse_busy_data[5] := $0C30;  gem_mouse_busy_mask[5] := $1E78
+  gem_mouse_busy_data[6] := $0660;  gem_mouse_busy_mask[6] := $0FF0
+  gem_mouse_busy_data[7] := $03C0;  gem_mouse_busy_mask[7] := $07E0
+  gem_mouse_busy_data[8] := $0660;  gem_mouse_busy_mask[8] := $0FF0
+  gem_mouse_busy_data[9] := $0C30;  gem_mouse_busy_mask[9] := $1E78
+  gem_mouse_busy_data[10] := $1818; gem_mouse_busy_mask[10] := $3C3C
+  gem_mouse_busy_data[11] := $300C; gem_mouse_busy_mask[11] := $781E
+  gem_mouse_busy_data[12] := $6006; gem_mouse_busy_mask[12] := $F00F
+  gem_mouse_busy_data[13] := $7FFE; gem_mouse_busy_mask[13] := $FFFF
+  gem_mouse_busy_data[14] := $0000; gem_mouse_busy_mask[14] := $0000
+  gem_mouse_busy_data[15] := $0000; gem_mouse_busy_mask[15] := $0000
+
+  -> I-beam/vertical bar sprite data (16x16)
+  FOR i := 0 TO 15
+    gem_mouse_ibeam_data[i] := $0180
+    gem_mouse_ibeam_mask[i] := $03C0
+  ENDFOR
+  gem_mouse_ibeam_data[0] := $0000; gem_mouse_ibeam_mask[0] := $0000
+  gem_mouse_ibeam_data[15] := $0000; gem_mouse_ibeam_mask[15] := $0000
+
+  -> Pointing finger sprite data (16x16)
+  gem_mouse_point_data[0] := $0000;  gem_mouse_point_mask[0] := $0000
+  gem_mouse_point_data[1] := $0E00;  gem_mouse_point_mask[1] := $1F00
+  gem_mouse_point_data[2] := $0A00;  gem_mouse_point_mask[2] := $1F00
+  gem_mouse_point_data[3] := $0A00;  gem_mouse_point_mask[3] := $1F00
+  gem_mouse_point_data[4] := $0A00;  gem_mouse_point_mask[4] := $1F00
+  gem_mouse_point_data[5] := $0A00;  gem_mouse_point_mask[5] := $1F00
+  gem_mouse_point_data[6] := $0A00;  gem_mouse_point_mask[6] := $1F00
+  gem_mouse_point_data[7] := $0A00;  gem_mouse_point_mask[7] := $1F00
+  gem_mouse_point_data[8] := $0A00;  gem_mouse_point_mask[8] := $1F00
+  gem_mouse_point_data[9] := $0A00;  gem_mouse_point_mask[9] := $1F00
+  gem_mouse_point_data[10] := $0E00; gem_mouse_point_mask[10] := $1F00
+  gem_mouse_point_data[11] := $1C00; gem_mouse_point_mask[11] := $3E00
+  gem_mouse_point_data[12] := $3800; gem_mouse_point_mask[12] := $7C00
+  gem_mouse_point_data[13] := $7000; gem_mouse_point_mask[13] := $F800
+  gem_mouse_point_data[14] := $2000; gem_mouse_point_mask[14] := $7000
+  gem_mouse_point_data[15] := $0000; gem_mouse_point_mask[15] := $0000
 ENDPROC
 
 -> graf_rubberbox() - Interactive rubber-band rectangle
@@ -2402,7 +2380,7 @@ ENDPROC
 -> For M_SPECIAL: same + ctx[7]=color_ptr, ctx[8]=words
 -> Returns previous mouse shape
 PROC gem_graf_mouse()
-  DEF shape, old_shape, hotx, hoty, data_ptr, i
+  DEF shape, old_shape, hotx, hoty, data_ptr, win:PTR TO window
   shape := ctx[3]
   old_shape := gem_mouse_shape
 
@@ -2425,10 +2403,7 @@ PROC gem_graf_mouse()
           unsigned short *dst = (unsigned short *)gem_mouse_user_data;
           unsigned short *src = (unsigned short *)data_ptr;
           int n;
-          int count = (shape == 6) ? 33 : 66;  /* M_USERDEF=33, M_SPECIAL=66 */
-          for (n = 0; n < count && n < 33; n++) {
-            dst[n] = src[n];
-          }
+          for (n = 0; n < 33; n++) dst[n] = src[n];
         } ENDNATIVE
         gem_mouse_shape := shape
       ELSE
@@ -2442,30 +2417,31 @@ PROC gem_graf_mouse()
   ENDIF
 
   -> Attempt to update the pointer via AmigaOS Intuition if a window is open
-  IF gem_mouse_visible AND gem_window_list[0] <> 0
+  win := gem_window_list[0] !!PTR TO window
+  IF gem_mouse_visible AND win <> 0
     IF gem_mouse_user_active
-      NATIVE { SetPointer((struct Window *)gem_window_list[0], (UWORD *)gem_mouse_user_data, 16, 16, (short)gem_mouse_user_hotx, (short)gem_mouse_user_hoty); } ENDNATIVE
+      gem_SetPointer(win, gem_mouse_user_data, 16, 16, gem_mouse_user_hotx, gem_mouse_user_hoty)
     ELSE
       -> Use predefined shape
       IF shape = M_ARROW
-        NATIVE { SetPointer((struct Window *)gem_window_list[0], (UWORD *)gem_mouse_arrow_data, 16, 16, 0, 0); } ENDNATIVE
+        gem_SetPointer(win, gem_mouse_arrow_data, 16, 16, 0, 0)
       ELSE
         IF shape = M_BUSY
-          NATIVE { SetPointer((struct Window *)gem_window_list[0], (UWORD *)gem_mouse_busy_data, 16, 16, 7, 7); } ENDNATIVE
+          gem_SetPointer(win, gem_mouse_busy_data, 16, 16, 7, 7)
         ELSE
           IF shape = M_IBEAM
-            NATIVE { SetPointer((struct Window *)gem_window_list[0], (UWORD *)gem_mouse_ibeam_data, 16, 16, 7, 7); } ENDNATIVE
+            gem_SetPointer(win, gem_mouse_ibeam_data, 16, 16, 7, 7)
           ELSE
             IF shape = M_POINT
-              NATIVE { SetPointer((struct Window *)gem_window_list[0], (UWORD *)gem_mouse_point_data, 16, 16, 0, 0); } ENDNATIVE
+              gem_SetPointer(win, gem_mouse_point_data, 16, 16, 0, 0)
             ENDIF
           ENDIF
         ENDIF
       ENDIF
     ENDIF
   ELSE
-    IF NOT gem_mouse_visible AND gem_window_list[0] <> 0
-      NATIVE { ClearPointer((struct Window *)gem_window_list[0]); } ENDNATIVE
+    IF NOT gem_mouse_visible AND win <> 0
+      gem_ClearPointer(win)
     ENDIF
   ENDIF
 
@@ -2516,9 +2492,443 @@ PROC gem_graf_accel()
   pid := ctx[3]
   tree := ctx[4]
   key := ctx[5]
-  -> Store the accelerator key binding
   gem_graf_accel_key := key
   ctx[0] := gem_graf_accel_key
+ENDPROC
+
+
+-> ============================
+-> VDI - Virtual Device Interface
+-> ============================
+
+DEF vdi_handle -> current workstation handle (-1 = none)
+DEF vdi_work_w, vdi_work_h -> workstation pixel dimensions
+DEF vdi_dev_w, vdi_dev_h -> device pixel dimensions
+DEF vdi_n_planes -> bits per pixel
+DEF vdi_line_type, vdi_line_width, vdi_line_color
+DEF vdi_fill_type, vdi_fill_index, vdi_fill_color
+DEF vdi_marker_type, vdi_marker_height, vdi_marker_color
+DEF vdi_text_font, vdi_text_color, vdi_text_rotation
+DEF vdi_wr_mode -> writing mode (1=replace, 2=transparent, 3=XOR, 4=reverseTransparent)
+DEF vdi_clip_x, vdi_clip_y, vdi_clip_w, vdi_clip_h
+DEF vdi_cur_x, vdi_cur_y -> graphics cursor position
+
+-> VDI attribute constants
+CONST VDI_REPLACE = 1, VDI_TRANSPARENT = 2, VDI_XOR = 3, VDI_REVERSE = 4
+
+-> VDI colour lookup (Atari ST standard 16-colour palette indexed by colour index)
+DEF vdi_rgb[48]:ARRAY OF CHAR -> 16 colours x 3 bytes (R,G,B)
+PROC vdi_init_rgb()
+  DEF v
+  DEF vdi_rgb[48]:ARRAY OF CHAR -> 16 colours x 3 bytes (R,G,B)
+  v := 0; vdi_rgb[0] := v !!CHAR; vdi_rgb[1] := v !!CHAR; vdi_rgb[2] := v !!CHAR
+  v := 0; vdi_rgb[3] := v !!CHAR; vdi_rgb[4] := v !!CHAR; v := 200; vdi_rgb[5] := v !!CHAR
+  v := 0; vdi_rgb[6] := v !!CHAR; v := 200; vdi_rgb[7] := v !!CHAR; v := 0; vdi_rgb[8] := v !!CHAR
+  v := 0; vdi_rgb[9] := v !!CHAR; v := 200; vdi_rgb[10] := v !!CHAR; v := 200; vdi_rgb[11] := v !!CHAR
+  v := 200; vdi_rgb[12] := v !!CHAR; v := 0; vdi_rgb[13] := v !!CHAR; v := 0; vdi_rgb[14] := v !!CHAR
+  v := 200; vdi_rgb[15] := v !!CHAR; v := 0; vdi_rgb[16] := v !!CHAR; v := 200; vdi_rgb[17] := v !!CHAR
+  v := 200; vdi_rgb[18] := v !!CHAR; v := 200; vdi_rgb[19] := v !!CHAR; v := 0; vdi_rgb[20] := v !!CHAR
+  v := 200; vdi_rgb[21] := v !!CHAR; v := 200; vdi_rgb[22] := v !!CHAR; v := 200; vdi_rgb[23] := v !!CHAR
+  v := 100; vdi_rgb[24] := v !!CHAR; v := 100; vdi_rgb[25] := v !!CHAR; v := 100; vdi_rgb[26] := v !!CHAR
+  v := 0; vdi_rgb[27] := v !!CHAR; v := 0; vdi_rgb[28] := v !!CHAR; v := 100; vdi_rgb[29] := v !!CHAR
+  v := 0; vdi_rgb[30] := v !!CHAR; v := 100; vdi_rgb[31] := v !!CHAR; v := 0; vdi_rgb[32] := v !!CHAR
+  v := 0; vdi_rgb[33] := v !!CHAR; v := 100; vdi_rgb[34] := v !!CHAR; v := 100; vdi_rgb[35] := v !!CHAR
+  v := 100; vdi_rgb[36] := v !!CHAR; v := 0; vdi_rgb[37] := v !!CHAR; v := 0; vdi_rgb[38] := v !!CHAR
+  v := 100; vdi_rgb[39] := v !!CHAR; v := 0; vdi_rgb[40] := v !!CHAR; v := 100; vdi_rgb[41] := v !!CHAR
+  v := 100; vdi_rgb[42] := v !!CHAR; v := 100; vdi_rgb[43] := v !!CHAR; v := 0; vdi_rgb[44] := v !!CHAR
+  v := 255; vdi_rgb[45] := v !!CHAR; v := 255; vdi_rgb[46] := v !!CHAR; v := 255; vdi_rgb[47] := v !!CHAR
+ENDPROC
+
+-> VDI line type patterns (dash/dot definitions)
+DEF vdi_line_pats[6]:ARRAY OF VALUE
+PROC vdi_init_line_pats()
+  vdi_line_pats[0] := $FFFF -> solid (user-defined, default = solid)
+  vdi_line_pats[1] := $FFFF -> solid
+  vdi_line_pats[2] := $FF88 -> long dash
+  vdi_line_pats[3] := $FF88 -> short dash (same as long dash on ST)
+  vdi_line_pats[4] := $CCCC -> dash-dot
+  vdi_line_pats[5] := $CCCC -> dash-dot (alternate)
+ENDPROC
+
+-> Open a virtual workstation with the given work-in array
+-> ctx[3] = work_in ptr (in emulated memory) — 45 words of device-independent attributes
+-> Returns handle via ctx[0]
+PROC vdi_opnvwk()
+  vdi_handle := 1
+  vdi_work_w := 640; vdi_work_h := 400
+  vdi_dev_w := 640; vdi_dev_h := 400
+  vdi_n_planes := 4
+  vdi_line_type := 1; vdi_line_width := 1; vdi_line_color := 1
+  vdi_fill_type := 1; vdi_fill_index := 1; vdi_fill_color := 1
+  vdi_marker_type := 3; vdi_marker_height := 10; vdi_marker_color := 1
+  vdi_text_font := 1; vdi_text_color := 1; vdi_text_rotation := 0
+  vdi_wr_mode := VDI_REPLACE
+  vdi_clip_x := 0; vdi_clip_y := 0; vdi_clip_w := vdi_work_w; vdi_clip_h := vdi_work_h
+  vdi_cur_x := 0; vdi_cur_y := 0
+  -> Fill work_out array in emulated memory via intout
+  gem_intout[0] := 0            -> device id
+  gem_intout[1] := 1            -> line type count
+  gem_intout[2] := 1            -> line width count
+  gem_intout[3] := 1            -> marker type count
+  gem_intout[4] := 1            -> marker height count
+  gem_intout[5] := 1            -> text font count
+  gem_intout[6] := 4            -> colour count (4 planes = 16 colours)
+  gem_intout[7] := 1            -> fill type count
+  gem_intout[8] := 1            -> fill index count / pattern count
+  gem_intout[9] := 3            -> preloaded patterns
+  gem_intout[10] := 0           -> text rotation count
+  gem_intout[11] := 3           -> colour model (0=indexed, 3=RGB)
+  gem_intout[12] := vdi_dev_w  -> device width in pixels
+  gem_intout[13] := vdi_dev_h  -> device height in pixels
+  gem_intout[14] := vdi_dev_w / 8 -> device cell width in pixels
+  gem_intout[15] := vdi_dev_h / 16 -> device cell height in pixels
+  gem_intout[16] := 0           -> x dpi
+  gem_intout[17] := 0           -> y dpi
+  gem_intout[18] := 1           -> text effects
+  gem_intout[19] := 0           -> min character width
+  gem_intout[20] := 0           -> max character width
+  gem_intout[21] := 0           -> min character height (below baseline)
+  gem_intout[22] := 0           -> max character height (above baseline)
+  gem_intout[23] := 0           -> min kerning offset
+  gem_intout[24] := 0           -> max kerning offset
+  gem_intout[25] := 0           -> number of font entries
+  ctx[0] := vdi_handle
+ENDPROC
+
+-> Close workstation
+PROC vdi_clsvwk()
+  vdi_handle := -1
+  ctx[0] := 1
+ENDPROC
+
+-> Clear workstation (fill with colour index 0)
+PROC vdi_clrwk()
+  ctx[0] := 1
+ENDPROC
+
+-> Update workstation (flush pending drawing)
+PROC vdi_updwk()
+  ctx[0] := 1
+ENDPROC
+
+-> v_pline - Draw polyline (series of connected points)
+-> ptsin = array of (x,y) coordinate pairs, count in ptsin_count
+-> Attributes: line type, line width, line colour
+PROC vdi_pline()
+  DEF pts
+  pts := gem_control[2]
+  IF pts < 2 THEN pts := 2
+  -> Update cursor to last point
+  vdi_cur_x := gem_ptrin[(pts - 1) * 2]
+  vdi_cur_y := gem_ptrin[(pts - 1) * 2 + 1]
+  ctx[0] := 1
+ENDPROC
+
+-> v_pmarker - Draw marker symbols at each point
+-> ptsin = array of (x,y) coordinate pairs
+PROC vdi_pmarker()
+  DEF pts
+  pts := gem_control[2]
+  IF pts > 0
+    vdi_cur_x := gem_ptrin[(pts - 1) * 2]
+    vdi_cur_y := gem_ptrin[(pts - 1) * 2 + 1]
+  ENDIF
+  ctx[0] := 1
+ENDPROC
+
+-> v_gtext - Draw graphics text at position
+-> Position in ptsin[0], ptsin[1]; text in intin (null-terminated)
+PROC vdi_gtext()
+  vdi_cur_x := gem_ptrin[0]
+  vdi_cur_y := gem_ptrin[1]
+  ctx[0] := 1
+ENDPROC
+
+-> v_fillarea - Draw filled polygon
+-> ptsin = array of vertex (x,y) coordinates
+PROC vdi_fillarea()
+  DEF pts
+  pts := gem_control[2]
+  IF pts > 0
+    vdi_cur_x := gem_ptrin[(pts - 1) * 2]
+    vdi_cur_y := gem_ptrin[(pts - 1) * 2 + 1]
+  ENDIF
+  ctx[0] := 1
+ENDPROC
+
+-> v_bar - Draw filled rectangle (bar)
+-> ptsin[0..1] = top-left, ptsin[2..3] = bottom-right
+PROC vdi_bar()
+  ctx[0] := 1
+ENDPROC
+
+-> v_circle - Draw circle
+-> ptsin[0], ptsin[1] = centre; intin[0] = radius
+PROC vdi_circle()
+  vdi_cur_x := gem_ptrin[0] + gem_intin[0]
+  vdi_cur_y := gem_ptrin[1]
+  ctx[0] := 1
+ENDPROC
+
+-> v_ellipse - Draw ellipse
+-> ptsin[0], ptsin[1] = centre; intin[0] = x radius; intin[1] = y radius
+PROC vdi_ellipse()
+  vdi_cur_x := gem_ptrin[0] + gem_intin[0]
+  vdi_cur_y := gem_ptrin[1]
+  ctx[0] := 1
+ENDPROC
+
+-> v_ellarc - Draw elliptical arc
+-> ptsin[0..1] = centre; intin[0] = x radius; intin[1] = y radius
+-> intin[2] = start angle; intin[3] = end angle (in tenths of degrees)
+PROC vdi_ellarc()
+  ctx[0] := 1
+ENDPROC
+
+-> v_ellpie - Draw elliptical pie slice
+-> same params as ellarc but filled to centre
+PROC vdi_ellpie()
+  ctx[0] := 1
+ENDPROC
+
+-> v_arc - Draw circular arc
+-> ptsin[0..1] = centre; intin[0] = radius
+-> intin[1] = start angle; intin[2] = end angle
+PROC vdi_arc()
+  ctx[0] := 1
+ENDPROC
+
+-> v_pieslice - Draw circular pie slice
+-> same as arc but filled to centre
+PROC vdi_pieslice()
+  ctx[0] := 1
+ENDPROC
+
+-> v_rbox - Draw rounded rectangle (outline)
+-> ptsin[0..1] = top-left; ptsin[2..3] = bottom-right
+-> intin[0] = corner radius
+PROC vdi_rbox()
+  ctx[0] := 1
+ENDPROC
+
+-> v_rfbox - Draw filled rounded rectangle
+-> same as rbox but filled
+PROC vdi_rfbox()
+  ctx[0] := 1
+ENDPROC
+
+-> v_justified - Draw justified text
+PROC vdi_justified()
+  vdi_cur_x := gem_ptrin[0]
+  vdi_cur_y := gem_ptrin[1]
+  ctx[0] := 1
+ENDPROC
+
+-> v_cellarray - Draw rectangular block of pixel cells
+-> ptsin[0..1] = top-left; ptsin[2..3] = bottom-right
+-> intin contains pixel colours
+PROC vdi_cellarray()
+  DEF w, h
+  w := gem_ptrin[2] - gem_ptrin[0]
+  IF w < 0
+    w := -w
+  ENDIF
+  w := w + 1
+  h := gem_ptrin[3] - gem_ptrin[1]
+  IF h < 0
+    h := -h
+  ENDIF
+  h := h + 1
+  vdi_cur_x := gem_ptrin[2]
+  vdi_cur_y := gem_ptrin[3]
+  ctx[0] := 1
+ENDPROC
+
+-> v_bezier - Draw Bezier curve
+-> ptsin = control points; intin[0] = number of points
+PROC vdi_bezier()
+  ctx[0] := 1
+ENDPROC
+
+-> vq_color - Inquire colour representation
+-> intin[0] = colour index; intin[1] = flag (0=get RGB)
+-> Returns RGB in intout[0..2]
+PROC vdi_qcolor()
+  DEF idx
+  idx := gem_intin[0]
+  IF idx >= 0 AND idx <= 15
+    gem_intout[0] := vdi_rgb[idx * 3] * 1000 / 255
+    gem_intout[1] := vdi_rgb[idx * 3 + 1] * 1000 / 255
+    gem_intout[2] := vdi_rgb[idx * 3 + 2] * 1000 / 255
+  ELSE
+    gem_intout[0] := 0; gem_intout[1] := 0; gem_intout[2] := 0
+  ENDIF
+  ctx[0] := 1
+ENDPROC
+
+-> vq_curpos - Inquire graphics cursor position
+PROC vdi_qcurpos()
+  gem_intout[0] := vdi_cur_x
+  gem_intout[1] := vdi_cur_y
+  ctx[0] := 1
+ENDPROC
+
+-> vq_contxt - Inquire current context (VDI attributes)
+PROC vdi_qcontxt()
+  gem_intout[0] := vdi_line_type
+  gem_intout[1] := vdi_line_width
+  gem_intout[2] := vdi_line_color
+  gem_intout[3] := vdi_marker_type
+  gem_intout[4] := vdi_marker_height
+  gem_intout[5] := vdi_marker_color
+  gem_intout[6] := vdi_text_font
+  gem_intout[7] := vdi_text_color
+  gem_intout[8] := vdi_fill_type
+  gem_intout[9] := vdi_fill_index
+  gem_intout[10] := vdi_fill_color
+  gem_intout[11] := vdi_wr_mode
+  ctx[0] := 1
+ENDPROC
+
+-> vq_extnd - Inquire extended device capabilities
+-> intin[0] = device handle (0 = current)
+PROC vdi_qextnd()
+  gem_intout[0] := 0 -> device id
+  gem_intout[1] := 0 -> flags
+  gem_intout[2] := 0 -> colour capabilities
+  gem_intout[3] := 0 -> tiling capabilities
+  gem_intout[4] := 0 -> reserved
+  gem_intout[5] := 0
+  gem_intout[6] := 0
+  gem_intout[7] := 0
+  gem_intout[8] := 0
+  gem_intout[9] := 0
+  gem_intout[10] := 0
+  gem_intout[11] := 0
+  ctx[0] := 1
+ENDPROC
+
+-> vq_cellht - Inquire cell height
+PROC vdi_qcellht()
+  gem_intout[0] := vdi_work_h / 24
+  ctx[0] := 1
+ENDPROC
+
+-> vq_cellwd - Inquire cell width
+PROC vdi_qcellwd()
+  gem_intout[0] := vdi_work_w / 40
+  ctx[0] := 1
+ENDPROC
+
+-> vq_chcells - Inquire number of character cells
+PROC vdi_qchcells()
+  gem_intout[0] := 40 -> columns
+  gem_intout[1] := 25 -> rows
+  ctx[0] := 1
+ENDPROC
+
+-> vq_vgd - Inquire VGD (Virtual Graphics Device) capabilities
+PROC vdi_qvgd()
+  gem_intout[0] := 1 -> VDI version
+  gem_intout[1] := 0 -> sub-version
+  gem_intout[2] := 1 -> colour (0=mono, 1=colour)
+  gem_intout[3] := vdi_n_planes
+  gem_intout[4] := vdi_dev_w
+  gem_intout[5] := vdi_dev_h
+  gem_intout[6] := vdi_dev_w * vdi_n_planes / 8 -> bytes per line
+  gem_intout[7] := 0 -> screen base (emulated)
+  ctx[0] := 1
+ENDPROC
+
+-> vq_key_s - Inquire key shift status (always returns 0 in emulator)
+PROC vdi_qkey_s()
+  gem_intout[0] := 0
+  ctx[0] := 1
+ENDPROC
+
+-> v_opnwk — alternate open workstation (function 2)
+PROC vdi_opnwk()
+  vdi_opnvwk()
+ENDPROC
+
+-> Set VDI attribute functions based on intin values
+-> vsl_type (line type), vsl_width (line width), vsl_color (line colour)
+-> vsf_type (fill type), vsf_index (fill index), vsf_color (fill colour)
+-> etc.
+PROC vdi_set_line_type()
+  vdi_line_type := gem_intin[0]
+  ctx[0] := 1
+ENDPROC
+PROC vdi_set_line_width()
+  vdi_line_width := gem_intin[0]
+  ctx[0] := 1
+ENDPROC
+PROC vdi_set_line_color()
+  vdi_line_color := gem_intin[0]
+  ctx[0] := 1
+ENDPROC
+PROC vdi_set_fill_type()
+  vdi_fill_type := gem_intin[0]
+  IF gem_intin[1] <> 0 THEN vdi_fill_index := gem_intin[1]
+  ctx[0] := 1
+ENDPROC
+PROC vdi_set_fill_index()
+  vdi_fill_index := gem_intin[0]
+  ctx[0] := 1
+ENDPROC
+PROC vdi_set_fill_color()
+  vdi_fill_color := gem_intin[0]
+  ctx[0] := 1
+ENDPROC
+PROC vdi_set_marker_type()
+  vdi_marker_type := gem_intin[0]
+  ctx[0] := 1
+ENDPROC
+PROC vdi_set_marker_height()
+  vdi_marker_height := gem_intin[0]
+  ctx[0] := 1
+ENDPROC
+PROC vdi_set_marker_color()
+  vdi_marker_color := gem_intin[0]
+  ctx[0] := 1
+ENDPROC
+PROC vdi_set_text_font()
+  vdi_text_font := gem_intin[0]
+  ctx[0] := 1
+ENDPROC
+PROC vdi_set_text_color()
+  vdi_text_color := gem_intin[0]
+  ctx[0] := 1
+ENDPROC
+PROC vdi_set_text_rotation()
+  vdi_text_rotation := gem_intin[0]
+  ctx[0] := 1
+ENDPROC
+PROC vdi_set_writing_mode()
+  vdi_wr_mode := gem_intin[0]
+  ctx[0] := 1
+ENDPROC
+PROC vdi_set_clip_rect()
+  vdi_clip_x := gem_intin[0]
+  vdi_clip_y := gem_intin[1]
+  vdi_clip_w := gem_intin[2]
+  vdi_clip_h := gem_intin[3]
+  ctx[0] := 1
+ENDPROC
+PROC vdi_set_clip_state()
+  -> intin[0] = 0 (off), 1 (on)
+  ctx[0] := 1
+ENDPROC
+PROC vdi_set_curpos()
+  vdi_cur_x := gem_intin[0]
+  vdi_cur_y := gem_intin[1]
+  ctx[0] := 1
+ENDPROC
+
+-> VDI inquiry for fill area patterns
+PROC vdi_inq_fill_pats()
+  gem_intout[0] := 3
+  ctx[0] := 1
 ENDPROC
 
 
@@ -2526,24 +2936,126 @@ ENDPROC
 -> GEM VDI (Virtual Device Interface) dispatch
 -> Called via BIOS trap #2 with D0 = $C9
 -> Maps GEM VDI drawing calls to AmigaOS graphics.library
+-> ctx[1] = VDI function number
 -> ---------------------------------------------------------------------------
 PROC gem_vdi_dispatch()
   DEF fn
   fn := ctx[1]
 
-  -> VDI functions (-1 means inquire/init)
-  IF fn = 100
-    -> v_opnvwk() - Open workstation
+  SELECT fn
+
+  CASE 1  -> v_clsvwk - Close workstation
+    vdi_clsvwk()
+  CASE 2  -> v_opnwk - Open workstation
+    vdi_opnwk()
+  CASE 5  -> v_opnvwk - Open virtual workstation
+    vdi_opnvwk()
+  CASE 6  -> v_clsvwk - Close virtual workstation
+    vdi_clsvwk()
+  CASE 7  -> v_clrwk - Clear workstation
+    vdi_clrwk()
+  CASE 8  -> v_updwk - Update workstation
+    vdi_updwk()
+
+  -> Drawing primitives
+  CASE 11 -> v_pline
+    vdi_pline()
+  CASE 12 -> v_pmarker
+    vdi_pmarker()
+  CASE 13 -> v_gtext
+    vdi_gtext()
+  CASE 14 -> v_fillarea
+    vdi_fillarea()
+  CASE 15 -> v_ellipse
+    vdi_ellipse()
+  CASE 16 -> v_arc
+    vdi_arc()
+  CASE 17 -> v_pieslice
+    vdi_pieslice()
+  CASE 18 -> v_circle
+    vdi_circle()
+  CASE 19 -> v_ellarc
+    vdi_ellarc()
+  CASE 20 -> v_ellpie
+    vdi_ellpie()
+  CASE 21 -> v_rbox
+    vdi_rbox()
+  CASE 22 -> v_rfbox
+    vdi_rfbox()
+  CASE 23 -> v_bar
+    vdi_bar()
+  CASE 24 -> v_justified
+    vdi_justified()
+
+  -> Attributes
+  CASE 32 -> vsl_type
+    vdi_set_line_type()
+  CASE 33 -> vsl_width
+    vdi_set_line_width()
+  CASE 34 -> vsl_color
+    vdi_set_line_color()
+  CASE 35 -> vsf_type
+    vdi_set_fill_type()
+  CASE 36 -> vsf_index
+    vdi_set_fill_index()
+  CASE 37 -> vsf_color
+    vdi_set_fill_color()
+  CASE 38 -> vsm_type
+    vdi_set_marker_type()
+  CASE 39 -> vsm_height
+    vdi_set_marker_height()
+  CASE 40 -> vsm_color
+    vdi_set_marker_color()
+  CASE 41 -> vst_font
+    vdi_set_text_font()
+  CASE 42 -> vst_color
+    vdi_set_text_color()
+  CASE 43 -> vst_rotation
+    vdi_set_text_rotation()
+  CASE 44 -> vswr_mode
+    vdi_set_writing_mode()
+  CASE 45 -> vsl_pattern - line pattern (obsolete)
     ctx[0] := 1
-  ELSE
-    IF fn = 1
-      -> v_clsvwk() - Close workstation
-      ctx[0] := 1
-    ELSE
-      -> All other VDI functions return stub values
-      ctx[0] := 1
-    ENDIF
-  ENDIF
+  CASE 46 -> vs_clip - set clipping rectangle
+    vdi_set_clip_rect()
+  CASE 47 -> vs_clip - set clipping state (0=off, 1=on)
+    vdi_set_clip_state()
+  CASE 48 -> vs_curpos - set graphics cursor position
+    vdi_set_curpos()
+
+  -> Inquiry
+  CASE 10 -> vq_color
+    vdi_qcolor()
+  CASE 26 -> vq_curpos
+    vdi_qcurpos()
+  CASE 27 -> vq_contxt
+    vdi_qcontxt()
+  CASE 30 -> vq_extnd
+    vdi_qextnd()
+  CASE 31 -> vq_key_s
+    vdi_qkey_s()
+  CASE 36 -> vq_cellht
+    vdi_qcellht()
+  CASE 37 -> vq_cellwd
+    vdi_qcellwd()
+  CASE 38 -> vq_chcells
+    vdi_qchcells()
+  CASE 120 -> vq_vgd
+    vdi_qvgd()
+
+  CASE 100 -> v_opnvwk (alternate)
+    vdi_opnvwk()
+  CASE 101 -> v_cellarray
+    vdi_cellarray()
+  CASE 107 -> v_bezier
+    vdi_bezier()
+  CASE 109 -> v_inq_fill_pats - inquire fill patterns
+    vdi_inq_fill_pats()
+
+  DEFAULT
+    -> All other VDI functions return success
+    ctx[0] := 1
+  ENDSELECT
 ENDPROC
 
 
@@ -2875,25 +3387,7 @@ PROC gem_init_font_8x16()
   -> Allocate and populate TextFont structure
   gem_font_8x16 := AllocMem(120, 65538) !!PTR TO textfont
   IF gem_font_8x16
-    NATIVE {
-      struct TextFont *tf = (struct TextFont *)gem_font_8x16;
-      tf->tf_Message.mn_ReplyPort = NULL;
-      tf->tf_Message.mn_Length = sizeof(struct TextFont);
-      tf->tf_YSize = 16;
-      tf->tf_Style = 0;
-      tf->tf_Flags = 0;
-      tf->tf_XSize = 8;
-      tf->tf_Baseline = 13;
-      tf->tf_BoldSmear = 0;
-      tf->tf_Accessors = 0;
-      tf->tf_LoChar = 0;
-      tf->tf_HiChar = 255;
-      tf->tf_CharData = (APTR)gem_font_data_8x16;
-      tf->tf_Modulo = 8;
-      tf->tf_CharLoc = (APTR)gem_font_loc_8x16;
-      tf->tf_CharSpace = (APTR)gem_font_width_8x16;
-      tf->tf_CharKern = NULL;
-    } ENDNATIVE
+    gem_TextFontInit16(gem_font_8x16)
     AddFont(gem_font_8x16)
     gem_font_8x16_registered := 1
   ENDIF
@@ -2901,7 +3395,7 @@ ENDPROC
 
 -> Build and register Atari ST 8x8 system font
 PROC gem_init_font_8x8()
-  DEF i
+  DEF i, c, r
 
   FOR i := 0 TO 255
     gem_font_width_8x8[i] := 8
@@ -2911,40 +3405,16 @@ PROC gem_init_font_8x8()
     gem_font_loc_8x8[i] := (i * 8) !!CHAR
   ENDFOR
 
-  -> Generate 8x8 glyphs (half-height version of 8x16)
-  NATIVE {
-    unsigned char *buf = (unsigned char *)gem_font_data_8x8;
-    unsigned char *src = (unsigned char *)gem_font_data_8x16;
-    int c, r;
-    for (c = 0; c < 256; c++) {
-      for (r = 0; r < 8; r++) {
-        /* Downsample 8x16 to 8x8 by taking every 2nd row */
-        buf[c * 8 + r] = src[c * 16 + (r * 2)];
-      }
-    }
-  } ENDNATIVE
+  -> Downsample 8x16 to 8x8 by taking every 2nd row
+  FOR c := 0 TO 255
+    FOR r := 0 TO 7
+      gem_font_data_8x8[c * 8 + r] := gem_font_data_8x16[c * 16 + r * 2]
+    ENDFOR
+  ENDFOR
 
   gem_font_8x8 := AllocMem(120, 65538) !!PTR TO textfont
   IF gem_font_8x8
-    NATIVE {
-      struct TextFont *tf = (struct TextFont *)gem_font_8x8;
-      tf->tf_Message.mn_ReplyPort = NULL;
-      tf->tf_Message.mn_Length = sizeof(struct TextFont);
-      tf->tf_YSize = 8;
-      tf->tf_Style = 0;
-      tf->tf_Flags = 0;
-      tf->tf_XSize = 8;
-      tf->tf_Baseline = 7;
-      tf->tf_BoldSmear = 0;
-      tf->tf_Accessors = 0;
-      tf->tf_LoChar = 0;
-      tf->tf_HiChar = 255;
-      tf->tf_CharData = (APTR)gem_font_data_8x8;
-      tf->tf_Modulo = 8;
-      tf->tf_CharLoc = (APTR)gem_font_loc_8x8;
-      tf->tf_CharSpace = (APTR)gem_font_width_8x8;
-      tf->tf_CharKern = NULL;
-    } ENDNATIVE
+    gem_TextFontInit8(gem_font_8x8)
     AddFont(gem_font_8x8)
     gem_font_8x8_registered := 1
   ENDIF
@@ -3013,6 +3483,9 @@ PROC main()
   gem_graf_accel_key := 0
   gem_mouse_init()
   gem_init_fonts()
+  vdi_init_rgb()
+  vdi_init_line_pats()
+  vdi_handle := -1
 
   IF cli_argc() > 1
     arg := cli_argv_ptr(1)
