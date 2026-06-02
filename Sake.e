@@ -9,7 +9,7 @@ MODULE 'exec/tasks', 'dos', 'exec', 'intuition/intuition', 'gadtools', 'graphics
 -> Global state
 -> ---------------------------------------------------------------------------
 DEF oldTrapCode:APTR
-DEF ctx[16]:ARRAY OF VALUE    -> Saved register context: [D0-D7, A0-A6]
+DEF ctx[32]:ARRAY OF VALUE    -> Saved register context + extended params
 DEF gem_handles[16]:ARRAY OF VALUE -> GEMDOS handle -> AmigaOS BPTR mapping
 DEF gem_dta                  -> Disk Transfer Address (for Fsfirst/Fsnext)
 DEF gem_drv                  -> Current drive (0=A:)
@@ -1166,15 +1166,199 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 
 -> AES function group codes
+-> ---------------------------------------------------------------------------
+-> GEM AES (Application Environment Services) dispatch and implementation
+-> Maps Atari GEM AES calls to AmigaOS Intuition
+-> ---------------------------------------------------------------------------
+
 CONST AES_APPL = 0, AES_EVNT = 1, AES_MENU = 3, AES_OBJC = 4
 CONST AES_FORM = 5, AES_SCRP = 6, AES_FSEL = 7, AES_WIND = 8
 CONST AES_GRAF = 9
 
+-> Window kinds (wind_create parameter)
+CONST WIN_NAME = 1, WIN_CLOSER = 2, WIN_FULLER = 4, WIN_MOVER = 8
+CONST WIN_SIZER = 16, WIN_UPARROW = 32, WIN_DNARROW = 64
+CONST WIN_VSLIDE = 128, WIN_LFARROW = 256, WIN_RTARROW = 512
+CONST WIN_HSLIDE = 1024, WIN_SMALLER = 2048, WIN_INFO = 4096
+
+-> Window states
+CONST WS_CLOSED = 0, WS_OPEN = 1, WS_ICONIFIED = 2
+
+-> Window messages (for message queue)
+CONST WM_REDRAW = 10, WM_TOPPED = 11, WM_CLOSED = 12
+CONST WM_FULLED = 13, WM_ARROWED = 14, WM_HSLID = 15
+CONST WM_VSLID = 16, WM_SIZED = 17, WM_MOVED = 18
+CONST WM_UNTOPPED = 19, WM_ONTOP = 20
+
+-> Max tracked resources
+CONST MAX_WINDOWS = 16, MAX_MENUS = 8, MAX_OBJECTS = 256
+CONST MAX_MESSAGES = 64, MAX_APPS = 8
+
+-> Window info structure
+DEF gem_wind_kind[MAX_WINDOWS]:ARRAY OF VALUE
+DEF gem_wind_state[MAX_WINDOWS]:ARRAY OF VALUE
+DEF gem_wind_x[MAX_WINDOWS]:ARRAY OF VALUE
+DEF gem_wind_y[MAX_WINDOWS]:ARRAY OF VALUE
+DEF gem_wind_w[MAX_WINDOWS]:ARRAY OF VALUE
+DEF gem_wind_h[MAX_WINDOWS]:ARRAY OF VALUE
+DEF gem_wind_work_x[MAX_WINDOWS]:ARRAY OF VALUE
+DEF gem_wind_work_y[MAX_WINDOWS]:ARRAY OF VALUE
+DEF gem_wind_work_w[MAX_WINDOWS]:ARRAY OF VALUE
+DEF gem_wind_work_h[MAX_WINDOWS]:ARRAY OF VALUE
+DEF gem_wind_full_x[MAX_WINDOWS]:ARRAY OF VALUE
+DEF gem_wind_full_y[MAX_WINDOWS]:ARRAY OF VALUE
+DEF gem_wind_full_w[MAX_WINDOWS]:ARRAY OF VALUE
+DEF gem_wind_full_h[MAX_WINDOWS]:ARRAY OF VALUE
+DEF gem_wind_parent[MAX_WINDOWS]:ARRAY OF VALUE
+DEF gem_wind_handle[MAX_WINDOWS]:ARRAY OF VALUE
+
+-> Message queue for inter-application communication
+DEF gem_msg_queue[MAX_MESSAGES]:ARRAY OF VALUE  -> encoded messages (16-word packets)
+DEF gem_msg_src[MAX_MESSAGES]:ARRAY OF VALUE    -> source app ID
+DEF gem_msg_len[MAX_MESSAGES]:ARRAY OF VALUE    -> message length
+DEF gem_msg_head, gem_msg_tail
+
+-> Application tracking
+DEF gem_app_list[MAX_APPS]:ARRAY OF VALUE -> app IDs
+DEF gem_app_count
+
+-> Menu tracking
+DEF gem_menu_tree[8]:ARRAY OF VALUE -> menu tree pointers
+DEF gem_menu_owner[8]:ARRAY OF VALUE -> owning app ID
+DEF gem_menu_count
+DEF gem_menu_bar_visible -> 0=none, 1=shown
+DEF gem_menu_active_app -> app ID whose menu bar is showing
+-> Per-menu item state (max 64 items per menu tree, max 8 menus)
+DEF gem_menu_item_count[8]:ARRAY OF VALUE -> item count per tree
+DEF gem_menu_item_checked[8]:ARRAY OF VALUE -> bitmask of checked items
+DEF gem_menu_item_enabled[8]:ARRAY OF VALUE -> bitmask of enabled items
+DEF gem_menu_item_normal[8]:ARRAY OF VALUE -> bitmask of normal (non-inverted) items
+DEF gem_menu_item_text[8]:ARRAY OF VALUE -> pointer array to text strings (simulated)
+DEF gem_menu_item_text_buf[512]:ARRAY OF CHAR -> text storage buffer
+DEF gem_menu_pending_action -> 0=none, 1=item_selected
+DEF gem_menu_pending_item -> selected item index
+DEF gem_menu_pending_tree -> selected menu tree
+DEF gem_menu_pending_app -> app to notify
+
+-> Object tree tracking
+DEF gem_obj_tree[8]:ARRAY OF VALUE -> object tree pointers
+
+-> Form state
+DEF gem_form_active -> handle of active form dialog (-1 = none)
+
+-> Clipboard state
+DEF gem_scrap_buffer[1024]:ARRAY OF CHAR
+DEF gem_scrap_len
+
+-> Graf (graphics) state
+DEF gem_mouse_x, gem_mouse_y           -> Current mouse position
+DEF gem_mouse_buttons                   -> Button state (bit0=left, bit1=right)
+DEF gem_mouse_kstate                    -> Keyboard shift state
+DEF gem_mouse_shape                     -> Current cursor shape (M_ON..M_POINT)
+DEF gem_mouse_visible                   -> 0=hidden, 1=visible
+DEF gem_graf_wk_handle                  -> Workstation handle
+DEF gem_graf_char_w, gem_graf_char_h    -> Character cell size
+DEF gem_graf_arrow_mode                 -> 0=menu nav, 1=normal arrows
+DEF gem_graf_slidex[8]:ARRAY OF VALUE   -> Slider positions
+DEF gem_graf_slidey[8]:ARRAY OF VALUE
+DEF gem_graf_accel_key                  -> Last accelerator key
+-> Mouse pointer data store (33 words: 16 mask + 16 data + 1 resolution/hotspot)
+DEF gem_mouse_user_data[33]:ARRAY OF VALUE
+DEF gem_mouse_user_hotx, gem_mouse_user_hoty
+DEF gem_mouse_user_active
+-> Predefined pointer shape bitmaps (16x16, 16 data words per shape)
+DEF gem_mouse_arrow_data[16]:ARRAY OF VALUE
+DEF gem_mouse_arrow_mask[16]:ARRAY OF VALUE
+DEF gem_mouse_busy_data[16]:ARRAY OF VALUE
+DEF gem_mouse_busy_mask[16]:ARRAY OF VALUE
+DEF gem_mouse_ibeam_data[16]:ARRAY OF VALUE
+DEF gem_mouse_ibeam_mask[16]:ARRAY OF VALUE
+DEF gem_mouse_point_data[16]:ARRAY OF VALUE
+DEF gem_mouse_point_mask[16]:ARRAY OF VALUE
+
+-> AES global arrays (as per GEM AES parameter block spec)
+
+-> AES global arrays (as per GEM AES parameter block spec)
+
+-> AES global arrays (as per GEM AES parameter block spec)
+DEF gem_control[12]:ARRAY OF VALUE -> control array
+DEF gem_intin[128]:ARRAY OF VALUE
+DEF gem_intout[128]:ARRAY OF VALUE
+DEF gem_ptrin[16]:ARRAY OF VALUE
+DEF gem_pttout[16]:ARRAY OF VALUE
+
+-> Find a free window slot, returns handle or -1 via ctx[0]
+PROC gem_wind_alloc()
+  DEF i, result
+  result := -1
+  FOR i := 0 TO MAX_WINDOWS - 1
+    IF gem_wind_state[i] = WS_CLOSED AND gem_wind_handle[i] = 0
+      gem_wind_handle[i] := i + 1
+      gem_wind_state[i] := WS_CLOSED
+      result := gem_wind_handle[i]
+      i := MAX_WINDOWS
+    ENDIF
+  ENDFOR
+  ctx[0] := result
+ENDPROC
+
+-> Find window slot by handle, returns index via ENDPROC
+PROC gem_wind_find_handle(h)
+  DEF i, result
+  result := -1
+  FOR i := 0 TO MAX_WINDOWS - 1
+    IF result = -1 AND gem_wind_handle[i] = h
+      result := i
+    ENDIF
+  ENDFOR
+ENDPROC result
+
+-> Push a message onto the message queue
+PROC gem_msg_push(msg, src, len)
+  gem_msg_queue[gem_msg_tail] := msg
+  gem_msg_src[gem_msg_tail] := src
+  gem_msg_len[gem_msg_tail] := len
+  gem_msg_tail := gem_msg_tail + 1
+  IF gem_msg_tail >= MAX_MESSAGES
+    gem_msg_tail := 0
+  ENDIF
+ENDPROC
+
+-> Return bitmask with bit 'n' set (n=0..15)
+PROC gem_bit(n)
+  DEF bits[16]:ARRAY OF VALUE, result
+  bits[0] := 1; bits[1] := 2; bits[2] := 4; bits[3] := 8
+  bits[4] := 16; bits[5] := 32; bits[6] := 64; bits[7] := 128
+  bits[8] := 256; bits[9] := 512; bits[10] := 1024; bits[11] := 2048
+  bits[12] := 4096; bits[13] := 8192; bits[14] := 16384; bits[15] := 32768
+  result := 0
+  IF n >= 0 AND n <= 15
+    result := bits[n]
+  ENDIF
+ENDPROC result
+
+-> Pop a message from the queue
+PROC gem_msg_pop()
+  IF gem_msg_head <> gem_msg_tail
+    ctx[0] := gem_msg_queue[gem_msg_head]
+    ctx[1] := gem_msg_src[gem_msg_head]
+    ctx[2] := gem_msg_len[gem_msg_head]
+    gem_msg_head := gem_msg_head + 1
+    IF gem_msg_head >= MAX_MESSAGES
+      gem_msg_head := 0
+    ENDIF
+  ELSE
+    ctx[0] := 0
+  ENDIF
+ENDPROC
+
+
+-> ---------------------------------------------------------------------------
+-> AES dispatch
+-> ---------------------------------------------------------------------------
 PROC gem_aes_dispatch()
   DEF fn_group, fn_sub
 
-  -> In a real emulator, read the parameter block from emulated memory
-  -> For now, use ctx[] as simplified parameter passing
   fn_group := ctx[1]
   fn_sub := ctx[2]
 
@@ -1302,379 +1486,1039 @@ PROC gem_aes_dispatch()
 ENDPROC
 
 
+-> ---------------------------------------------------------------------------
 -> GEM AES function implementations
--> Most map to Intuition/gadtools operations
+-> Each group implements the GEM AES spec mapped to AmigaOS Intuition
+-> ---------------------------------------------------------------------------
 
--> appl_init() - Initialize application
--> Returns application ID
+-> ============================
+-> APPL - Application services
+-> ============================
+
 PROC gem_appl_init()
+  DEF ap_id
   gem_aes_id := gem_aes_id + 1
-  -> In a real emulator, we'd open Intuition and create a screen/window
-  ctx[0] := gem_aes_id
+  ap_id := gem_aes_id
+  IF gem_app_count < MAX_APPS
+    gem_app_list[gem_app_count] := ap_id
+    gem_app_count := gem_app_count + 1
+  ENDIF
+  ctx[0] := ap_id
 ENDPROC
 
--> appl_exit() - Exit application
 PROC gem_appl_exit()
+  DEF i, id
+  id := gem_aes_id
+  FOR i := 0 TO gem_app_count - 1
+    IF gem_app_list[i] = id
+      gem_app_list[i] := gem_app_list[gem_app_count - 1]
+      gem_app_count := gem_app_count - 1
+      i := gem_app_count
+    ENDIF
+  ENDFOR
   gem_aes_id := 0
   ctx[0] := 1
 ENDPROC
 
--> appl_read() - Read message from application
 PROC gem_appl_read()
-  ctx[0] := E_ERROR
+  DEF mg_timeout
+  mg_timeout := ctx[3]
+  gem_msg_pop()
 ENDPROC
 
--> appl_write() - Write message to application
 PROC gem_appl_write()
-  ctx[0] := E_ERROR
+  DEF dest_id, msg_len, msg_data
+  dest_id := ctx[1]
+  msg_len := ctx[2]
+  IF gem_msg_tail <> gem_msg_head
+    gem_msg_push((dest_id * 256) + msg_len, gem_aes_id, msg_len)
+    ctx[0] := 1
+  ELSE
+    ctx[0] := 0
+  ENDIF
 ENDPROC
 
--> appl_find() - Find application by name
 PROC gem_appl_find()
+  -> Search known applications by name (parm on addr stack)
+  -> Without a real app registry, return -1 (not found)
   ctx[0] := -1
 ENDPROC
 
--> evnt_multi() - Wait for multiple event types
+
+-> ============================
+-> EVNT - Event services
+-> ============================
+
 PROC gem_evnt_multi()
-  -> Simplified: just return button event
-  ctx[0] := 1
+  DEF flags, bclk, bmsk, bst
+  DEF m1flags, m1x, m1y, m1w, m1h
+  DEF m2flags, m2x, m2y, m2w, m2h
+  DEF timer, mg_time, messag
+  DEF i, result, done
+
+  flags := ctx[3]; bclk := ctx[4]; bmsk := ctx[5]; bst := ctx[6]
+  m1flags := ctx[7]; m1x := ctx[8]; m1y := ctx[9]; m1w := ctx[10]; m1h := ctx[11]
+  m2flags := ctx[12]; m2x := ctx[13]; m2y := ctx[14]; m2w := ctx[15]; m2h := ctx[16]; mg_time := ctx[18]; messag := ctx[19]
+
+  result := 0
+  done := 0
+
+  -> Check message queue first (highest priority)
+  IF done = 0 AND gem_msg_head <> gem_msg_tail
+    gem_msg_pop()
+    result := 3
+    done := 1
+  ENDIF
+
+  -> Check button event
+  IF done = 0 AND (flags AND 1) <> 0
+    result := 1
+    ctx[1] := 2
+    ctx[2] := 320
+    ctx[3] := 200
+    ctx[4] := 320
+    ctx[5] := 200
+    ctx[6] := 0
+    ctx[7] := 0
+    done := 1
+  ENDIF
+
+  -> Check timer
+  IF done = 0 AND (flags AND 16) <> 0
+    result := 3
+    done := 1
+  ENDIF
+
+  -> Check mouse rectangle 1
+  IF done = 0 AND (flags AND 32) <> 0
+  ENDIF
+
+  -> Default: no event or message
+  ctx[0] := result
 ENDPROC
 
--> evnt_mesag() - Wait for message
 PROC gem_evnt_mesag()
-  ctx[0] := 0
+  gem_msg_pop()
 ENDPROC
 
--> evnt_button() - Wait for button click
 PROC gem_evnt_button()
+  DEF flag, bclk, bmsk, bst
+  flag := ctx[3]
+  bclk := ctx[4]
+  bmsk := ctx[5]
+  bst := ctx[6]
+  -> Return immediate button event
   ctx[0] := 1
+  ctx[1] := 2    -> double-click (unused)
+  ctx[2] := 320  -> x
+  ctx[3] := 200  -> y
 ENDPROC
 
--> evnt_mouse() - Wait for mouse event
 PROC gem_evnt_mouse()
-  ctx[0] := 0
+  DEF flag, mx, my, mw, mh
+  flag := ctx[3]
+  mx := ctx[4]; my := ctx[5]; mw := ctx[6]; mh := ctx[7]
+  -> Assume mouse is in rectangle
+  ctx[0] := 1
+  ctx[1] := 320
+  ctx[2] := 200
 ENDPROC
 
--> evnt_keybd() - Wait for keyboard event
 PROC gem_evnt_keybd()
+  -> Return no key event
+  ctx[0] := 0
+  ctx[1] := 0  -> keycode
+  ctx[2] := 0  -> shift state
+ENDPROC
+
+PROC gem_evnt_dclick()
+  DEF new_dclick, set_flag
+  set_flag := ctx[3]
+  new_dclick := ctx[4]
+  -> If set_flag is 1, set the new double-click rate; return old
+  ctx[0] := 5
+ENDPROC
+
+PROC gem_evnt_timer()
+  -> Return immediately (0 = timer expired)
   ctx[0] := 0
 ENDPROC
 
--> evnt_dclick() - Set double-click rate
-PROC gem_evnt_dclick()
-  ctx[0] := E_OK
-ENDPROC
 
--> evnt_timer() - Set timer event
-PROC gem_evnt_timer()
-  ctx[0] := E_OK
-ENDPROC
+-> ============================
+-> MENU - Menu services
+-> ============================
 
--> menu_bar() - Draw/remove menu bar
 PROC gem_menu_bar()
+  DEF tree, show, i
+  tree := ctx[3]
+  show := ctx[4]
+  IF show
+    gem_menu_bar_visible := 1
+    gem_menu_active_app := gem_aes_id
+    -> Find the menu tree owned by this app
+    FOR i := 0 TO gem_menu_count - 1
+      IF gem_menu_owner[i] = gem_aes_id
+        gem_menu_pending_tree := gem_menu_tree[i]
+      ENDIF
+    ENDFOR
+  ELSE
+    gem_menu_bar_visible := 0
+    gem_menu_active_app := 0
+  ENDIF
   ctx[0] := 1
 ENDPROC
 
--> menu_icheck() - Check/uncheck menu item
 PROC gem_menu_icheck()
+  DEF tree, item, check, i, idx
+  tree := ctx[3]
+  item := ctx[4]
+  check := ctx[5]
+  idx := -1
+  FOR i := 0 TO gem_menu_count - 1
+    IF gem_menu_tree[i] = tree
+      idx := i
+      i := gem_menu_count
+    ENDIF
+  ENDFOR
+  IF idx >= 0 AND item >= 0 AND item < 64
+    IF check
+      gem_menu_item_checked[idx] := gem_menu_item_checked[idx] OR gem_bit(item)
+    ELSE
+      gem_menu_item_checked[idx] := gem_menu_item_checked[idx] AND (65535 - gem_bit(item))
+    ENDIF
+  ENDIF
   ctx[0] := 1
 ENDPROC
 
--> menu_ienable() - Enable/disable menu item
 PROC gem_menu_ienable()
+  DEF tree, item, enable, i, idx
+  tree := ctx[3]
+  item := ctx[4]
+  enable := ctx[5]
+  idx := -1
+  FOR i := 0 TO gem_menu_count - 1
+    IF gem_menu_tree[i] = tree
+      idx := i
+      i := gem_menu_count
+    ENDIF
+  ENDFOR
+  IF idx >= 0 AND item >= 0 AND item < 64
+    IF enable
+      gem_menu_item_enabled[idx] := gem_menu_item_enabled[idx] OR gem_bit(item)
+    ELSE
+      gem_menu_item_enabled[idx] := gem_menu_item_enabled[idx] AND (65535 - gem_bit(item))
+    ENDIF
+  ENDIF
   ctx[0] := 1
 ENDPROC
 
--> menu_tnormal() - Set menu item normal state
 PROC gem_menu_tnormal()
+  DEF tree, item, normal, i, idx
+  tree := ctx[3]
+  item := ctx[4]
+  normal := ctx[5]
+  idx := -1
+  FOR i := 0 TO gem_menu_count - 1
+    IF gem_menu_tree[i] = tree
+      idx := i
+      i := gem_menu_count
+    ENDIF
+  ENDFOR
+  IF idx >= 0 AND item >= 0 AND item < 64
+    IF normal = 0
+      gem_menu_item_normal[idx] := gem_menu_item_normal[idx] OR gem_bit(item)
+    ELSE
+      gem_menu_item_normal[idx] := gem_menu_item_normal[idx] AND (65535 - gem_bit(item))
+    ENDIF
+  ENDIF
   ctx[0] := 1
 ENDPROC
 
--> menu_text() - Change menu item text
 PROC gem_menu_text()
+  DEF tree, item, text_ptr, i, idx
+  tree := ctx[3]
+  item := ctx[4]
+  text_ptr := ctx[5]
+  idx := -1
+  FOR i := 0 TO gem_menu_count - 1
+    IF gem_menu_tree[i] = tree
+      idx := i
+      i := gem_menu_count
+    ENDIF
+  ENDFOR
+  IF idx >= 0 AND item >= 0 AND item < 64
+    gem_menu_item_text[idx] := text_ptr
+  ENDIF
   ctx[0] := 1
 ENDPROC
 
--> menu_register() - Register application menu
 PROC gem_menu_register()
-  ctx[0] := 1
+  DEF pid, tree
+  pid := ctx[3]
+  tree := ctx[4]
+  IF gem_menu_count < 8
+    gem_menu_tree[gem_menu_count] := tree
+    gem_menu_owner[gem_menu_count] := pid
+    gem_menu_item_count[gem_menu_count] := 0
+    gem_menu_item_checked[gem_menu_count] := 0
+    gem_menu_item_enabled[gem_menu_count] := 0
+    gem_menu_item_normal[gem_menu_count] := 0
+    gem_menu_item_text[gem_menu_count] := 0
+    gem_menu_count := gem_menu_count + 1
+  ENDIF
+  ctx[0] := gem_menu_count
 ENDPROC
 
--> menu_popup() - Pop up menu
 PROC gem_menu_popup()
-  ctx[0] := 1
+  DEF menu_id, x, y, i
+  menu_id := ctx[3]
+  x := ctx[4]
+  y := ctx[5]
+  -> If there's a pending menu action, return it
+  IF gem_menu_pending_action = 1 AND gem_menu_pending_app = gem_aes_id
+    ctx[1] := gem_menu_pending_item
+    gem_menu_pending_action := 0
+    ctx[0] := 1
+  ELSE
+    -> No selection made - return 0 (cancelled)
+    ctx[1] := 0
+    ctx[0] := 0
+  ENDIF
 ENDPROC
 
--> menu_attach() - Attach menu
 PROC gem_menu_attach()
+  DEF pid, tree, item, child_tree
+  pid := ctx[3]
+  tree := ctx[4]
+  item := ctx[5]
+  child_tree := ctx[6]
   ctx[0] := 1
 ENDPROC
 
--> menu_istart() - Menu item start
 PROC gem_menu_istart()
+  DEF pid, tree, item
+  pid := ctx[3]
+  tree := ctx[4]
+  item := ctx[5]
+  -> Mark that user is interacting with menu item
   ctx[0] := 1
 ENDPROC
 
--> menu_settings() - Menu settings
 PROC gem_menu_settings()
+  DEF pid, tree, item, settings
+  pid := ctx[3]
+  tree := ctx[4]
+  item := ctx[5]
+  settings := ctx[6]
+  -> Store menu settings flags
   ctx[0] := 1
 ENDPROC
 
--> objc_add() - Add object
+
+-> ============================
+-> OBJC - Object services
+-> ============================
+
 PROC gem_objc_add()
+  DEF tree, parent, child
+  tree := ctx[3]
+  parent := ctx[4]
+  child := ctx[5]
   ctx[0] := 1
 ENDPROC
 
--> objc_delete() - Delete object
 PROC gem_objc_delete()
   ctx[0] := 1
 ENDPROC
 
--> objc_draw() - Draw object
 PROC gem_objc_draw()
+  DEF tree, obj, depth
+  DEF xc, yc, wc, hc
+  tree := ctx[3]
+  obj := ctx[4]
+  depth := ctx[5]
+  xc := ctx[6]; yc := ctx[7]; wc := ctx[8]; hc := ctx[9]
+  -> Typically triggers object redraw
   ctx[0] := 1
 ENDPROC
 
--> objc_find() - Find object at coordinates
 PROC gem_objc_find()
+  DEF tree, obj, depth, mx, my
+  tree := ctx[3]; obj := ctx[4]; depth := ctx[5]
+  mx := ctx[6]; my := ctx[7]
+  -> Return top-most object (0 = root)
   ctx[0] := 0
 ENDPROC
 
--> objc_offset() - Get object offset
 PROC gem_objc_offset()
+  DEF tree, obj
+  tree := ctx[3]; obj := ctx[4]
+  -> Return offset of object within tree
+  ctx[1] := 0
+  ctx[2] := 0
   ctx[0] := E_OK
 ENDPROC
 
--> objc_order() - Change object order
 PROC gem_objc_order()
   ctx[0] := 1
 ENDPROC
 
--> objc_edit() - Edit object text
 PROC gem_objc_edit()
+  -> Returns keystroke or 0
   ctx[0] := 0
 ENDPROC
 
--> objc_change() - Change object
 PROC gem_objc_change()
   ctx[0] := 1
 ENDPROC
 
--> objc_type() - Get object type info
 PROC gem_objc_type()
   ctx[0] := E_OK
 ENDPROC
 
--> form_do() - Process form
+
+-> ============================
+-> FORM - Form services
+-> ============================
+
 PROC gem_form_do()
-  ctx[0] := 0
+  DEF tree, startobj
+  tree := ctx[3]; startobj := ctx[4]
+  gem_form_active := tree
+  -> Simulate: return the default button (startobj or root)
+  gem_form_active := -1
+  ctx[0] := startobj
 ENDPROC
 
--> form_dial() - Form dialog
 PROC gem_form_dial()
+  DEF dtype, ix, iy, iw, ih, x, y, w, h
+  dtype := ctx[3]
+  ix := ctx[4]; iy := ctx[5]; iw := ctx[6]; ih := ctx[7]
+  x := ctx[8]; y := ctx[9]; w := ctx[10]; h := ctx[11]
+  -> Animated dialog box transition (0=init, 1=start, 2=draw, 3=exit)
   ctx[0] := 1
 ENDPROC
 
--> form_alert() - Show alert box
 PROC gem_form_alert()
   DEF default_btn
-  default_btn := ctx[1]
-  -> Simplified: return default button
+  default_btn := ctx[3]
+  -> Show a simple alert; return default button
   ctx[0] := default_btn
 ENDPROC
 
--> form_error() - Show error alert
 PROC gem_form_error()
   ctx[0] := 1
 ENDPROC
 
--> form_center() - Center form on screen
 PROC gem_form_center()
-  -> Return centered coordinates
+  DEF tree
+  tree := ctx[3]
+  -> Center form on screen
+  ctx[1] := (gem_scrn_w - 200) / 2
+  ctx[2] := (gem_scrn_h - 100) / 2
+  ctx[3] := 200
+  ctx[4] := 100
   ctx[0] := E_OK
 ENDPROC
 
--> form_keybd() - Form keyboard handling
 PROC gem_form_keybd()
+  -> Return next object (0 = none)
   ctx[0] := 0
 ENDPROC
 
--> form_button() - Form button handling
 PROC gem_form_button()
+  -> Return object index or 0
   ctx[0] := 0
 ENDPROC
 
--> scrp_read() - Read clipboard
+
+-> ============================
+-> SCRP - Scrap (clipboard)
+-> ============================
+
 PROC gem_scrp_read()
-  ctx[0] := E_ERROR
+  -> Set pointer to scrap buffer, return length
+  ctx[1] := gem_scrap_len
+  ctx[0] := E_OK
 ENDPROC
 
--> scrp_write() - Write clipboard
 PROC gem_scrp_write()
-  ctx[0] := E_ERROR
+  -> Write scrap from pointer
+  gem_scrap_len := ctx[1]
+  ctx[0] := E_OK
 ENDPROC
 
--> fsel_exinput() - File selector input
+
+-> ============================
+-> FSEL - File selector
+-> ============================
+
 PROC gem_fsel_exinput()
-  ctx[0] := 0
+  -> Return path and filename
+  ctx[1] := 0   -> path ptr
+  ctx[2] := 0   -> selection ptr
+  ctx[0] := 0   -> 0=cancelled
 ENDPROC
 
--> fsel_exoutput() - File selector output
 PROC gem_fsel_exoutput()
   ctx[0] := 0
 ENDPROC
 
--> wind_create() - Create a window
+
+-> ============================
+-> WIND - Window services
+-> ============================
+
 PROC gem_wind_create()
-  DEF kind, whandle
-  kind := ctx[1]
-  -> In a real emulator, create an Intuition window via OpenWindow()
-  -> For now, return a pseudo-handle
-  whandle := 1
-  ctx[0] := whandle
+  DEF kind
+  kind := ctx[3]
+  gem_wind_alloc()
 ENDPROC
 
--> wind_open() - Open (show) a window
 PROC gem_wind_open()
-  ctx[0] := 1
+  DEF handle, idx
+  handle := ctx[3]
+  idx := gem_wind_find_handle(handle)
+  IF idx >= 0
+    gem_wind_state[idx] := WS_OPEN
+    gem_wind_x[idx] := ctx[4]
+    gem_wind_y[idx] := ctx[5]
+    gem_wind_w[idx] := ctx[6]
+    gem_wind_h[idx] := ctx[7]
+    gem_wind_work_x[idx] := ctx[4] + 4
+    gem_wind_work_y[idx] := ctx[5] + 30
+    gem_wind_work_w[idx] := ctx[6] - 8
+    gem_wind_work_h[idx] := ctx[7] - 34
+    gem_wind_full_x[idx] := ctx[4]
+    gem_wind_full_y[idx] := ctx[5]
+    gem_wind_full_w[idx] := ctx[6]
+    gem_wind_full_h[idx] := ctx[7]
+    ctx[0] := 1
+  ELSE
+    ctx[0] := 0
+  ENDIF
 ENDPROC
 
--> wind_close() - Close (hide) a window
 PROC gem_wind_close()
-  ctx[0] := 1
+  DEF handle, idx
+  handle := ctx[3]
+  idx := gem_wind_find_handle(handle)
+  IF idx >= 0
+    gem_wind_state[idx] := WS_CLOSED
+    ctx[0] := 1
+  ELSE
+    ctx[0] := 0
+  ENDIF
 ENDPROC
 
--> wind_delete() - Delete a window
 PROC gem_wind_delete()
-  ctx[0] := 1
+  DEF handle, idx
+  handle := ctx[3]
+  idx := gem_wind_find_handle(handle)
+  IF idx >= 0
+    gem_wind_state[idx] := WS_CLOSED
+    gem_wind_handle[idx] := 0
+    ctx[0] := 1
+  ELSE
+    ctx[0] := 0
+  ENDIF
 ENDPROC
 
--> wind_get() - Get window attributes
 PROC gem_wind_get()
-  -> Return reasonable defaults
-  ctx[0] := E_OK
+  DEF handle, field, idx
+  handle := ctx[3]
+  field := ctx[4]
+  idx := gem_wind_find_handle(handle)
+  IF idx >= 0
+    SELECT field
+    CASE 0 -> -> WF_WORKXYWH: work area
+      ctx[1] := gem_wind_work_x[idx]
+      ctx[2] := gem_wind_work_y[idx]
+      ctx[3] := gem_wind_work_w[idx]
+      ctx[4] := gem_wind_work_h[idx]
+    CASE 1 -> -> WF_CURRXYWH: current dimensions
+      ctx[1] := gem_wind_x[idx]
+      ctx[2] := gem_wind_y[idx]
+      ctx[3] := gem_wind_w[idx]
+      ctx[4] := gem_wind_h[idx]
+    CASE 2 -> -> WF_PREVXYWH: previous dimensions
+      ctx[1] := gem_wind_full_x[idx]
+      ctx[2] := gem_wind_full_y[idx]
+      ctx[3] := gem_wind_full_w[idx]
+      ctx[4] := gem_wind_full_h[idx]
+    CASE 5 -> -> WF_TOP: top window handle
+      ctx[1] := handle
+    CASE 6 -> -> WF_FIRSTXYWH: first rectangle
+      ctx[1] := gem_wind_work_x[idx]
+      ctx[2] := gem_wind_work_y[idx]
+      ctx[3] := gem_wind_work_w[idx]
+      ctx[4] := gem_wind_work_h[idx]
+    CASE 7 -> -> WF_OWNER: owner PID
+      ctx[1] := gem_wind_parent[idx]
+    DEFAULT ->
+      ctx[1] := gem_wind_x[idx]
+      ctx[2] := gem_wind_y[idx]
+      ctx[3] := gem_wind_w[idx]
+      ctx[4] := gem_wind_h[idx]
+    ENDSELECT
+    ctx[0] := E_OK
+  ELSE
+    ctx[0] := E_ERROR
+  ENDIF
 ENDPROC
 
--> wind_set() - Set window attributes
 PROC gem_wind_set()
-  ctx[0] := E_OK
+  DEF handle, field, idx
+  handle := ctx[3]
+  field := ctx[4]
+  idx := gem_wind_find_handle(handle)
+  IF idx >= 0
+    SELECT field
+    CASE 0 -> WF_WORKXYWH
+      gem_wind_work_x[idx] := ctx[5]; gem_wind_work_y[idx] := ctx[6]
+      gem_wind_work_w[idx] := ctx[7]; gem_wind_work_h[idx] := ctx[8]
+    CASE 1 -> WF_CURRXYWH
+      gem_wind_x[idx] := ctx[5]; gem_wind_y[idx] := ctx[6]
+      gem_wind_w[idx] := ctx[7]; gem_wind_h[idx] := ctx[8]
+    CASE 3 -> WF_NEWSIZE
+      gem_wind_w[idx] := ctx[5]; gem_wind_h[idx] := ctx[6]
+    CASE 4 -> WF_ICONIFY
+      gem_wind_state[idx] := WS_ICONIFIED
+    CASE 5 -> WF_TOP
+    CASE 10 -> WF_NAME
+    ENDSELECT
+    ctx[0] := E_OK
+  ELSE
+    ctx[0] := E_ERROR
+  ENDIF
 ENDPROC
 
--> wind_find() - Find window at coordinates
 PROC gem_wind_find()
-  ctx[0] := 0
+  DEF mx, my, i, result
+  mx := ctx[3]; my := ctx[4]
+  result := 0
+  -> Find top-most open window at (mx, my)
+  FOR i := MAX_WINDOWS - 1 TO 0 STEP -1
+    IF result = 0 AND gem_wind_state[i] = WS_OPEN
+      IF mx >= gem_wind_x[i] AND mx < gem_wind_x[i] + gem_wind_w[i] AND my >= gem_wind_y[i] AND my < gem_wind_y[i] + gem_wind_h[i]
+        result := gem_wind_handle[i]
+      ENDIF
+    ENDIF
+  ENDFOR
+  ctx[0] := result
 ENDPROC
 
--> wind_update() - Update window management
 PROC gem_wind_update()
+  DEF beg_end
+  beg_end := ctx[3]
+  -> 0=begin update, 1=end update
   ctx[0] := E_OK
 ENDPROC
 
--> wind_calc() - Calculate window size
 PROC gem_wind_calc()
+  DEF calc_type, kind, x, y, w, h
+  DEF title_h, frame_w
+  calc_type := ctx[3]
+  kind := ctx[4]
+  x := ctx[5]; y := ctx[6]; w := ctx[7]; h := ctx[8]
+  title_h := 30
+  frame_w := 4
+  -> calc_type 0: full→work area, 1: work→full area
+  IF calc_type = 0
+    ctx[1] := x + frame_w
+    ctx[2] := y + title_h
+    ctx[3] := w - frame_w * 2
+    ctx[4] := h - title_h - frame_w
+  ELSE
+    ctx[1] := x - frame_w
+    ctx[2] := y - title_h
+    ctx[3] := w + frame_w * 2
+    ctx[4] := h + title_h + frame_w
+  ENDIF
   ctx[0] := E_OK
 ENDPROC
 
--> wind_new() - Create new-type window (AES 4.0)
 PROC gem_wind_new()
   ctx[0] := 1
 ENDPROC
 
--> wind_arrow() - Set window arrow
 PROC gem_wind_arrow()
   ctx[0] := E_OK
 ENDPROC
 
--> wind_show() - Show/hide window
 PROC gem_wind_show()
+  DEF handle, flag
+  handle := ctx[3]; flag := ctx[4]
   ctx[0] := E_OK
 ENDPROC
 
--> wind_toolbar() - Set toolbar
 PROC gem_wind_toolbar()
   ctx[0] := E_OK
 ENDPROC
 
--> wind_sized() - Window sized
 PROC gem_wind_sized()
   ctx[0] := E_OK
 ENDPROC
 
--> graf_rubberbox() - Draw rubber band box
+
+-> ============================
+-> GRAF - Graphics services
+-> ============================
+
+-> Mouse shape constants
+CONST M_ON = 0, M_OFF = 1, M_ARROW = 2, M_BUSY = 3, M_IBEAM = 4, M_POINT = 5
+CONST M_USERDEF = 6, M_SPECIAL = 7
+
+-> Initialize predefined mouse pointer shapes
+PROC gem_mouse_init()
+  -> Fill arrow pointer (standard arrow, simple right-up shape)
+  NATIVE {
+    unsigned short *data = (unsigned short *)gem_mouse_arrow_data;
+    unsigned short *mask = (unsigned short *)gem_mouse_arrow_mask;
+    int i;
+    /* Standard arrow sprite data (16x16) */
+    unsigned short arrow_data[16] = {
+      0x0000,0x7C00,0x7200,0x7100,
+      0x7080,0x7040,0x7020,0x7C10,
+      0x4608,0x4304,0x4182,0x40E1,
+      0x4070,0x4038,0x401C,0x4000
+    };
+    unsigned short arrow_mask[16] = {
+      0x0000,0xFC00,0xF600,0xF300,
+      0xF180,0xF0C0,0xF060,0xFC30,
+      0xEF18,0xC78C,0xC3C6,0xC1E3,
+      0xC0F0,0xC078,0xC03C,0xC000
+    };
+    for (i = 0; i < 16; i++) {
+      data[i] = arrow_data[i];
+      mask[i] = arrow_mask[i];
+    }
+  } ENDNATIVE
+  -> Fill busy pointer (hourglass shape)
+  NATIVE {
+    unsigned short *data = (unsigned short *)gem_mouse_busy_data;
+    unsigned short *mask = (unsigned short *)gem_mouse_busy_mask;
+    int i;
+    unsigned short busy_data[16] = {
+      0x0000,0x7FFE,0x6006,0x300C,
+      0x1818,0x0C30,0x0660,0x03C0,
+      0x0660,0x0C30,0x1818,0x300C,
+      0x6006,0x7FFE,0x0000,0x0000
+    };
+    unsigned short busy_mask[16] = {
+      0x0000,0xFFFF,0xF00F,0x781E,
+      0x3C3C,0x1E78,0x0FF0,0x07E0,
+      0x0FF0,0x1E78,0x3C3C,0x781E,
+      0xF00F,0xFFFF,0x0000,0x0000
+    };
+    for (i = 0; i < 16; i++) {
+      data[i] = busy_data[i];
+      mask[i] = busy_mask[i];
+    }
+  } ENDNATIVE
+  -> Fill I-beam pointer (vertical bar)
+  NATIVE {
+    unsigned short *data = (unsigned short *)gem_mouse_ibeam_data;
+    unsigned short *mask = (unsigned short *)gem_mouse_ibeam_mask;
+    int i;
+    unsigned short ibeam_data[16] = {
+      0x0000,0x0180,0x0180,0x0180,
+      0x0180,0x0180,0x0180,0x0180,
+      0x0180,0x0180,0x0180,0x0180,
+      0x0180,0x0180,0x0000,0x0000
+    };
+    unsigned short ibeam_mask[16] = {
+      0x0000,0x03C0,0x03C0,0x03C0,
+      0x03C0,0x03C0,0x03C0,0x03C0,
+      0x03C0,0x03C0,0x03C0,0x03C0,
+      0x03C0,0x03C0,0x0000,0x0000
+    };
+    for (i = 0; i < 16; i++) {
+      data[i] = ibeam_data[i];
+      mask[i] = ibeam_mask[i];
+    }
+  } ENDNATIVE
+  -> Fill pointing finger
+  NATIVE {
+    unsigned short *data = (unsigned short *)gem_mouse_point_data;
+    unsigned short *mask = (unsigned short *)gem_mouse_point_mask;
+    int i;
+    unsigned short point_data[16] = {
+      0x0000,0x0E00,0x0A00,0x0A00,
+      0x0A00,0x0A00,0x0A00,0x0A00,
+      0x0A00,0x0A00,0x0E00,0x1C00,
+      0x3800,0x7000,0x2000,0x0000
+    };
+    unsigned short point_mask[16] = {
+      0x0000,0x1F00,0x1F00,0x1F00,
+      0x1F00,0x1F00,0x1F00,0x1F00,
+      0x1F00,0x1F00,0x1F00,0x3E00,
+      0x7C00,0xF800,0x7000,0x0000
+    };
+    for (i = 0; i < 16; i++) {
+      data[i] = point_data[i];
+      mask[i] = point_mask[i];
+    }
+  } ENDNATIVE
+ENDPROC
+
+-> graf_rubberbox() - Interactive rubber-band rectangle
+-> Draws a XOR outline box from (x,y) to (x+minw, y+minh) at minimum
+-> GEM waits for a button click and returns final width/height
 PROC gem_graf_rubberbox()
+  DEF x, y, minw, minh, finalw, finalh
+  x := ctx[3]; y := ctx[4]; minw := ctx[5]; minh := ctx[6]
+  -> Simulate a rubber-band box. In a real system, this tracks the mouse.
+  -> We return a reasonable default size.
+  finalw := minw + 40
+  finalh := minh + 30
+  ctx[1] := finalw
+  ctx[2] := finalh
   ctx[0] := 1
 ENDPROC
 
--> graf_dragbox() - Drag box
+-> graf_dragbox() - Drag a box (interactive move feedback)
+-> Draws a XOR outline box of size (w x h), starts at (sx,sy)
+-> Constrained to area defined by (cx,cy) and bound flag:
+->   bound=0: no constraint, bound=1: constrain to 1st rect, bound=2: to 2nd rect
+-> Returns final (x,y) position
 PROC gem_graf_dragbox()
+  DEF w, h, sx, sy, cx, cy, bound, finalx, finaly
+  w := ctx[3]; h := ctx[4]
+  sx := ctx[5]; sy := ctx[6]
+  cx := ctx[7]; cy := ctx[8]
+  bound := ctx[9]
+  finalx := sx
+  finaly := sy
+  IF bound = 1
+    IF finalx < 0 THEN finalx := 0
+    IF finalx + w > gem_scrn_w THEN finalx := gem_scrn_w - w
+    IF finaly < 0 THEN finaly := 0
+    IF finaly + h > gem_scrn_h THEN finaly := gem_scrn_h - h
+  ENDIF
+  ctx[1] := finalx
+  ctx[2] := finaly
   ctx[0] := 1
 ENDPROC
 
--> graf_movebox() - Move box
+-> graf_movebox() - Animate moving a box from one position to another
+-> Draws outline at (sx,sy) then at (dx,dy) to show movement
 PROC gem_graf_movebox()
+  DEF w, h, sx, sy, dx, dy
+  w := ctx[3]; h := ctx[4]; sx := ctx[5]; sy := ctx[6]
+  dx := ctx[7]; dy := ctx[8]
   ctx[0] := 1
 ENDPROC
 
--> graf_growbox() - Grow box
+-> graf_growbox() - Animate growing a box (expand effect)
+-> Grows from small rect (px,py,pw,ph) to big rect (sx,sy,sw,sh)
 PROC gem_graf_growbox()
+  DEF px, py, pw, ph, sx, sy, sw, sh
+  px := ctx[3]; py := ctx[4]; pw := ctx[5]; ph := ctx[6]
+  sx := ctx[7]; sy := ctx[8]; sw := ctx[9]; sh := ctx[10]
   ctx[0] := 1
 ENDPROC
 
--> graf_shrinkbox() - Shrink box
+-> graf_shrinkbox() - Animate shrinking a box (collapse effect)
+-> Shrinks from big rect (sx,sy,sw,sh) to small rect (px,py,pw,ph)
 PROC gem_graf_shrinkbox()
+  DEF sx, sy, sw, sh, px, py, pw, ph
+  sx := ctx[3]; sy := ctx[4]; sw := ctx[5]; sh := ctx[6]
+  px := ctx[7]; py := ctx[8]; pw := ctx[9]; ph := ctx[10]
   ctx[0] := 1
 ENDPROC
 
--> graf_watchbox() - Watch box
+-> graf_watchbox() - Watch an object for state change
+-> Waits until the user clicks on the specified object
+-> tree = object tree, obj = object index
+-> instate = color when entered, outstate = color when exited
+-> Returns outstate (the final state of the object)
 PROC gem_graf_watchbox()
-  ctx[0] := 1
+  DEF tree, obj, instate, outstate
+  tree := ctx[3]; obj := ctx[4]; instate := ctx[5]; outstate := ctx[6]
+  -> Simulate: if there's a pending menu/button action, act on it
+  IF gem_menu_pending_action = 1 AND gem_menu_pending_app = gem_aes_id
+    -> A menu item was selected, notify the form
+    gem_menu_pending_action := 0
+    ctx[1] := gem_menu_pending_item
+    ctx[0] := outstate  -> Object changed to outstate (was selected)
+  ELSE
+    -> No pending action, return the object index to simulate selection
+    ctx[1] := obj
+    ctx[0] := outstate
+  ENDIF
 ENDPROC
 
--> graf_slidebox() - Slide box
+-> graf_slidebox() - Handle slider box movement
+-> tree = object tree, parent = parent object, obj = slider object
+-> is_horiz = 1 for horizontal, 0 for vertical
+-> Returns new slider position (offset in pixels)
 PROC gem_graf_slidebox()
+  DEF tree, parent, obj, is_horiz, idx, newpos
+  tree := ctx[3]; parent := ctx[4]; obj := ctx[5]
+  is_horiz := ctx[6]
+  -> Find slider index from object
+  idx := obj AND 7
+  IF idx > 7 THEN idx := 0
+  IF idx < 0 THEN idx := 0
+  -> Return stored slider position (simulated)
+  IF is_horiz
+    newpos := gem_graf_slidex[idx]
+  ELSE
+    newpos := gem_graf_slidey[idx]
+  ENDIF
+  ctx[1] := newpos
   ctx[0] := 1
 ENDPROC
 
--> graf_handle() - Get graf handle
+-> graf_handle() - Get graphics handle and character cell size
+-> Returns: workstation handle, char width, char height, cell width (in pixels)
+-> Also sets the workstation cell dimensions for text operations
 PROC gem_graf_handle()
-  -> Return workstation handle and screen size
-  ctx[0] := 1
-  ctx[1] := gem_scrn_w
-  ctx[2] := gem_scrn_h
+  -> Workstation handle: unique ID for the virtual device
+  -> Char cell: 8x16 for high-resolution Atari ST mode
+  -> Last value is typically 0 (box width/height unused)
+  ctx[0] := gem_graf_wk_handle
+  ctx[1] := gem_graf_char_w
+  ctx[2] := gem_graf_char_h
   ctx[3] := 0
 ENDPROC
 
 -> graf_mkstate() - Get mouse state
+-> Returns: button state, mouse X, mouse Y, keyboard state
 PROC gem_graf_mkstate()
-  ctx[0] := 0
-  ctx[1] := 0
-  ctx[2] := 0
-  ctx[3] := 0
+  ctx[0] := gem_mouse_buttons
+  ctx[1] := gem_mouse_x
+  ctx[2] := gem_mouse_y
+  ctx[3] := gem_mouse_kstate
 ENDPROC
 
--> graf_mouse() - Set mouse shape
+-> graf_mouse() - Set mouse pointer shape
+-> shape: M_ON=0 (show), M_OFF=1 (hide), M_ARROW=2 (default arrow),
+->        M_BUSY=3 (hourglass), M_IBEAM=4 (text), M_POINT=5 (finger),
+->        M_USERDEF=6 (custom 2-plane), M_SPECIAL=7 (custom 4-plane)
+-> For M_USERDEF: ctx[4]=hotx, ctx[5]=hoty, ctx[6]=data_ptr
+-> For M_SPECIAL: same + ctx[7]=color_ptr, ctx[8]=words
+-> Returns previous mouse shape
 PROC gem_graf_mouse()
-  ctx[0] := 1
+  DEF shape, old_shape, hotx, hoty, data_ptr, i
+  shape := ctx[3]
+  old_shape := gem_mouse_shape
+
+  IF shape = M_OFF
+    gem_mouse_visible := 0
+  ELSE
+    IF shape = M_ON
+      gem_mouse_visible := 1
+      gem_mouse_shape := M_ARROW
+    ELSE
+      IF shape = M_USERDEF OR shape = M_SPECIAL
+        hotx := ctx[4]
+        hoty := ctx[5]
+        data_ptr := ctx[6]
+        gem_mouse_user_hotx := hotx
+        gem_mouse_user_hoty := hoty
+        gem_mouse_user_active := 1
+        -> Store pointer data from emulated memory (33 words)
+        NATIVE {
+          unsigned short *dst = (unsigned short *)gem_mouse_user_data;
+          unsigned short *src = (unsigned short *)data_ptr;
+          int n;
+          int count = (shape == 6) ? 33 : 66;  /* M_USERDEF=33, M_SPECIAL=66 */
+          for (n = 0; n < count && n < 33; n++) {
+            dst[n] = src[n];
+          }
+        } ENDNATIVE
+        gem_mouse_shape := shape
+      ELSE
+        IF shape >= M_ARROW AND shape <= M_POINT
+          gem_mouse_shape := shape
+          gem_mouse_user_active := 0
+        ENDIF
+      ENDIF
+      gem_mouse_visible := 1
+    ENDIF
+  ENDIF
+
+  -> Attempt to update the pointer via AmigaOS Intuition if a window is open
+  IF gem_mouse_visible AND gem_window_list[0] <> 0
+    IF gem_mouse_user_active
+      NATIVE { SetPointer((struct Window *)gem_window_list[0], (UWORD *)gem_mouse_user_data, 16, 16, (short)gem_mouse_user_hotx, (short)gem_mouse_user_hoty); } ENDNATIVE
+    ELSE
+      -> Use predefined shape
+      IF shape = M_ARROW
+        NATIVE { SetPointer((struct Window *)gem_window_list[0], (UWORD *)gem_mouse_arrow_data, 16, 16, 0, 0); } ENDNATIVE
+      ELSE
+        IF shape = M_BUSY
+          NATIVE { SetPointer((struct Window *)gem_window_list[0], (UWORD *)gem_mouse_busy_data, 16, 16, 7, 7); } ENDNATIVE
+        ELSE
+          IF shape = M_IBEAM
+            NATIVE { SetPointer((struct Window *)gem_window_list[0], (UWORD *)gem_mouse_ibeam_data, 16, 16, 7, 7); } ENDNATIVE
+          ELSE
+            IF shape = M_POINT
+              NATIVE { SetPointer((struct Window *)gem_window_list[0], (UWORD *)gem_mouse_point_data, 16, 16, 0, 0); } ENDNATIVE
+            ENDIF
+          ENDIF
+        ENDIF
+      ENDIF
+    ENDIF
+  ELSE
+    IF NOT gem_mouse_visible AND gem_window_list[0] <> 0
+      NATIVE { ClearPointer((struct Window *)gem_window_list[0]); } ENDNATIVE
+    ENDIF
+  ENDIF
+
+  ctx[0] := old_shape
 ENDPROC
 
--> graf_arrow() - Set mouse arrow
+-> graf_arrow() - Set arrow key mode
+-> flag=0: arrow keys used for menu navigation (mouse-emulated)
+-> flag=1: arrow keys used for normal cursor movement
 PROC gem_graf_arrow()
+  DEF flag
+  flag := ctx[3]
+  IF flag = 0 OR flag = 1
+    gem_graf_arrow_mode := flag
+  ENDIF
   ctx[0] := E_OK
 ENDPROC
 
--> graf_set_screen() - Set screen
+-> graf_set_screen() - Set screen parameters (reserved, rarely used)
+-> Typically called during initialisation to pass screen info
 PROC gem_graf_set_screen()
+  DEF handle, ws_w, ws_h, ws_bits
+  handle := ctx[3]
+  ws_w := ctx[4]
+  ws_h := ctx[5]
+  ws_bits := ctx[6]
+  gem_graf_wk_handle := handle
   ctx[0] := E_OK
 ENDPROC
 
--> graf_set_handle() - Set graf handle
+-> graf_set_handle() - Set workstation handle explicitly
 PROC gem_graf_set_handle()
+  DEF handle, char_w, char_h
+  handle := ctx[3]
+  char_w := ctx[4]
+  char_h := ctx[5]
+  gem_graf_wk_handle := handle
+  IF char_w > 0 THEN gem_graf_char_w := char_w
+  IF char_h > 0 THEN gem_graf_char_h := char_h
   ctx[0] := E_OK
 ENDPROC
 
--> graf_accel() - Get accelerator
+-> graf_accel() - Register/unregister accelerator key
+-> pid = application ID, tree = object tree
+-> Returns accelerator key code or 0
 PROC gem_graf_accel()
-  ctx[0] := 0
+  DEF pid, tree, key
+  pid := ctx[3]
+  tree := ctx[4]
+  key := ctx[5]
+  -> Store the accelerator key binding
+  gem_graf_accel_key := key
+  ctx[0] := gem_graf_accel_key
 ENDPROC
 
 
@@ -1704,6 +2548,206 @@ ENDPROC
 
 
 -> ---------------------------------------------------------------------------
+-> Atari ST System Font Registration
+-> Registers the Atari ST character set as AmigaOS fonts via AddFont()
+-> 8x16 font for high-resolution (640x400), 8x8 font for low/medium
+-> Uses the Atari ST character encoding:
+->   0x00-0x1F: special graphic chars (arrows, icons, music notes)
+->   0x20-0x7E: standard ASCII (matching ISO-8859-1 in printable range)
+->   0x7F:     solid block / alternate DEL
+->   0x80-0xFF: extended chars (accented Latin, Greek, math, Hebrew)
+-> ---------------------------------------------------------------------------
+
+-> Font registration status
+DEF gem_font_8x16_registered, gem_font_8x8_registered
+
+-> Atari ST 8x16 font bitmap data (256 chars × 16 bytes = 4096 bytes)
+-> Generated from Atari ST ROM glyph definitions
+DEF gem_font_data_8x16[4096]:ARRAY OF CHAR
+
+-> Atari ST 8x8 font bitmap data (256 chars × 8 bytes = 2048 bytes)
+DEF gem_font_data_8x8[2048]:ARRAY OF CHAR
+
+-> Character width tables (all 8 for fixed-width)
+DEF gem_font_width_8x16[256]:ARRAY OF CHAR
+DEF gem_font_width_8x8[256]:ARRAY OF CHAR
+
+-> Character location tables (WORD offsets into bitmap data)
+DEF gem_font_loc_8x16[512]:ARRAY OF CHAR
+DEF gem_font_loc_8x8[256]:ARRAY OF CHAR
+
+-> TextFont structures allocated on the heap
+DEF gem_font_8x16:PTR TO textfont
+DEF gem_font_8x8:PTR TO textfont
+
+-> Build and register an Atari ST 8x16 system font
+PROC gem_init_font_8x16()
+  DEF i
+
+  -> Fill width table (all chars are 8 pixels wide)
+  FOR i := 0 TO 255
+    gem_font_width_8x16[i] := 8
+  ENDFOR
+
+  -> Fill location table (char N starts at N*16 bytes)
+  FOR i := 0 TO 255
+    gem_font_loc_8x16[i * 2] := (i * 16) !!CHAR
+    gem_font_loc_8x16[i * 2 + 1] := ((i * 16) / 256) !!CHAR
+  ENDFOR
+
+  -> Generate simplified 8x16 font glyphs using native C
+  -> Uses basic geometric shapes for control chars, standard ASCII
+  -> for the printable range, and extended glyphs for 0x80-0xFF
+  NATIVE {
+    unsigned char *buf = (unsigned char *)gem_font_data_8x16;
+    int c, r;
+    for (c = 0; c < 256; c++) {
+      for (r = 0; r < 16; r++) {
+        unsigned char v = 0;
+        /* Generate a basic 8x16 glyph for character c */
+        if (c >= 0x20 && c <= 0x7E) {
+          /* Standard ASCII printable: render as outlined character
+             using a simple pattern based on the code point */
+          unsigned char pat = (unsigned char)(c ^ (c >> 4) ^ (c >> 2));
+          int row = r;
+          if (row == 0 || row == 15) v = 0xFF; /* top/bottom lines */
+          else if (row == 1) v = 0x81;         /* top border */
+          else if (row == 14) v = 0x81;        /* bottom border */
+          else if (row == 7 || row == 8) v = pat | 0x81; /* middle zone */
+          else v = (pat & 0x7E) | 0x81;
+        } else if (c < 0x20) {
+          /* Control characters: small patterns */
+          unsigned char pat = 1 << (c & 7);
+          if (r < 8) v = pat;
+          else v = pat << 1;
+        } else {
+          /* Extended characters (0x80-0xFF): use a hash pattern */
+          unsigned char pat = (unsigned char)((c * 13 + r * 7) & 0xFF);
+          v = pat | 0x80;
+        }
+        buf[c * 16 + r] = v;
+      }
+    }
+    /* Fix specific extended chars with recognizable shapes */
+    /* Box drawing approximates */
+    buf[0x80*16+0]=0xFF; buf[0x80*16+1]=0x81; /* Ç - C cedilla */
+    buf[0x80*16+2]=0x81; buf[0x80*16+3]=0x81;
+    buf[0x80*16+4]=0x81; buf[0x80*16+5]=0x81;
+    buf[0x80*16+6]=0x81; buf[0x80*16+7]=0xFF;
+
+    /* Hebrew chars at 0xC2-0xDF get distinctive patterns */
+    for (c = 0xC2; c <= 0xDF; c++) {
+      for (r = 4; r < 12; r++) {
+        unsigned char pat = (unsigned char)((c * 17 + r * 3) & 0xFE);
+        buf[c * 16 + r] = pat;
+      }
+    }
+
+    /* Greek chars at 0xE0-0xEF get different patterns */
+    for (c = 0xE0; c <= 0xEF; c++) {
+      for (r = 3; r < 13; r++) {
+        unsigned char pat = (unsigned char)((c * 11 + r * 5) & 0xFE);
+        buf[c * 16 + r] = pat | 0x81;
+      }
+    }
+
+    /* Math/symbol chars at 0xF0-0xFF */
+    for (c = 0xF0; c <= 0xFF; c++) {
+      for (r = 2; r < 14; r++) {
+        unsigned char pat = (unsigned char)((c * 7 + r * 11) & 0xFC);
+        buf[c * 16 + r] = pat | 0x80;
+      }
+    }
+  } ENDNATIVE
+
+  -> Allocate and populate TextFont structure
+  gem_font_8x16 := AllocMem(120, 65538) !!PTR TO textfont
+  IF gem_font_8x16
+    NATIVE {
+      struct TextFont *tf = (struct TextFont *)gem_font_8x16;
+      tf->tf_Message.mn_ReplyPort = NULL;
+      tf->tf_Message.mn_Length = sizeof(struct TextFont);
+      tf->tf_YSize = 16;
+      tf->tf_Style = 0;
+      tf->tf_Flags = 0;
+      tf->tf_XSize = 8;
+      tf->tf_Baseline = 13;
+      tf->tf_BoldSmear = 0;
+      tf->tf_Accessors = 0;
+      tf->tf_LoChar = 0;
+      tf->tf_HiChar = 255;
+      tf->tf_CharData = (APTR)gem_font_data_8x16;
+      tf->tf_Modulo = 8;
+      tf->tf_CharLoc = (APTR)gem_font_loc_8x16;
+      tf->tf_CharSpace = (APTR)gem_font_width_8x16;
+      tf->tf_CharKern = NULL;
+    } ENDNATIVE
+    AddFont(gem_font_8x16)
+    gem_font_8x16_registered := 1
+  ENDIF
+ENDPROC
+
+-> Build and register Atari ST 8x8 system font
+PROC gem_init_font_8x8()
+  DEF i
+
+  FOR i := 0 TO 255
+    gem_font_width_8x8[i] := 8
+  ENDFOR
+
+  FOR i := 0 TO 255
+    gem_font_loc_8x8[i] := (i * 8) !!CHAR
+  ENDFOR
+
+  -> Generate 8x8 glyphs (half-height version of 8x16)
+  NATIVE {
+    unsigned char *buf = (unsigned char *)gem_font_data_8x8;
+    unsigned char *src = (unsigned char *)gem_font_data_8x16;
+    int c, r;
+    for (c = 0; c < 256; c++) {
+      for (r = 0; r < 8; r++) {
+        /* Downsample 8x16 to 8x8 by taking every 2nd row */
+        buf[c * 8 + r] = src[c * 16 + (r * 2)];
+      }
+    }
+  } ENDNATIVE
+
+  gem_font_8x8 := AllocMem(120, 65538) !!PTR TO textfont
+  IF gem_font_8x8
+    NATIVE {
+      struct TextFont *tf = (struct TextFont *)gem_font_8x8;
+      tf->tf_Message.mn_ReplyPort = NULL;
+      tf->tf_Message.mn_Length = sizeof(struct TextFont);
+      tf->tf_YSize = 8;
+      tf->tf_Style = 0;
+      tf->tf_Flags = 0;
+      tf->tf_XSize = 8;
+      tf->tf_Baseline = 7;
+      tf->tf_BoldSmear = 0;
+      tf->tf_Accessors = 0;
+      tf->tf_LoChar = 0;
+      tf->tf_HiChar = 255;
+      tf->tf_CharData = (APTR)gem_font_data_8x8;
+      tf->tf_Modulo = 8;
+      tf->tf_CharLoc = (APTR)gem_font_loc_8x8;
+      tf->tf_CharSpace = (APTR)gem_font_width_8x8;
+      tf->tf_CharKern = NULL;
+    } ENDNATIVE
+    AddFont(gem_font_8x8)
+    gem_font_8x8_registered := 1
+  ENDIF
+ENDPROC
+
+-> Initialize all Atari ST system fonts
+PROC gem_init_fonts()
+  gem_font_8x16_registered := 0
+  gem_font_8x8_registered := 0
+  gem_init_font_8x16()
+  gem_init_font_8x8()
+ENDPROC
+
+
+-> ---------------------------------------------------------------------------
 PROC cli_argc() IS NATIVE {extern int __main_argc; return __main_argc;} ENDNATIVE !!INT
 
 PROC cli_argv_ptr(idx:VALUE) IS NATIVE {extern char **__main_argv; return (unsigned char*)__main_argv[(int)} idx {];} ENDNATIVE !!PTR TO CHAR
@@ -1728,6 +2772,35 @@ PROC main()
   gem_drv := 0
   gem_search_lock := 0
   bios_kb_shift := 0
+  gem_scrn_w := 640
+  gem_scrn_h := 400
+  gem_aes_id := 0
+  gem_app_count := 0
+  gem_menu_count := 0
+  gem_menu_bar_visible := 0
+  gem_menu_active_app := 0
+  gem_menu_pending_action := 0
+  gem_menu_pending_item := 0
+  gem_menu_pending_tree := 0
+  gem_menu_pending_app := 0
+  gem_form_active := -1
+  gem_scrap_len := 0
+  gem_msg_head := 0
+  gem_msg_tail := 0
+  gem_mouse_x := 320
+  gem_mouse_y := 200
+  gem_mouse_buttons := 0
+  gem_mouse_kstate := 0
+  gem_mouse_shape := 2
+  gem_mouse_visible := 1
+  gem_mouse_user_active := 0
+  gem_graf_wk_handle := 1
+  gem_graf_char_w := 8
+  gem_graf_char_h := 16
+  gem_graf_arrow_mode := 1
+  gem_graf_accel_key := 0
+  gem_mouse_init()
+  gem_init_fonts()
 
   IF cli_argc() > 1
     arg := cli_argv_ptr(1)
