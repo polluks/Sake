@@ -32,19 +32,23 @@ Trap dispatchers and function stubs for all five Atari ST trap interfaces:
 | GEMDOS | 30+ — file I/O, console, directory, memory, process, date/time |
 | BIOS   | 12 — console I/O, tick calibration, drive map, keyboard shift |
 | XBIOS  | 18 — screen, mouse, timer, palette, floppy, RS232, random, cookie jar |
-| AES    | 70+ — window, menu, form, event, graphics, file selector, object |
-| VDI    | V_opnwk/V_clswk stub — drawing primitives (graphics.library target) |
+| AES    | 60+ — window, menu, form, event, graphics, file selector, object |
+| VDI    | v_opnvwk/v_clsvwk stub — remaining drawing ops return 1 |
 
-Notable implementations: **Pexec ($2D) LoadSeg mode 0** parses Atari PRG headers
-and loads text/data/bss segments via `AllocMem`.
+Notable implementations:
+- **Pexec ($2D) LoadSeg mode 0** parses Atari PRG headers and loads text/data/bss
+  segments via `AllocMem`.
+- **Font registration** maps the full Atari ST character set (256 glyphs, 8x16 and
+  8x8) to native AmigaOS `TextFont` structures via `AddFont()`. Bitmap data is
+  embedded as a static glyph table matching the ST ROM layout.
 
 Hardware-level BIOS calls (Rwabs, Flop*, DMA, MFP) and most VDI drawing return
 `E_ERROR` or 0 — these need Amiga-side emulation of ST hardware.
 
-AES window/form/menu stubs are wired to `intuition.library` and `gadtools.library`
-modules and ready for progressive implementation.
+AES window/form/menu calls are wired to `intuition.library` and `gadtools.library`
+and ready for progressive implementation.
 
-The trap handler (module-level ASM) is omitted due to PortablE limitations.
+The trap handler (inline ASM) is omitted due to PortablE limitations.
 
 ## References
 
