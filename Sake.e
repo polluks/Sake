@@ -81,7 +81,7 @@ ENDPROC result
 -> ---------------------------------------------------------------------------
 PROC gemdos_dispatch()
   DEF fn
-  fn := ctx[0] !!INT
+  fn := asINT(ctx[0])
 
   SELECT fn
 
@@ -153,7 +153,7 @@ PROC gemdos_cconin()
   Read(Input(), ch, 1)
   -> Echo character
   Write(Output(), ch, 1)
-  ctx[0] := ch[0] !!LONG
+  ctx[0] := asLONG(ch[0])
 ENDPROC
 
 
@@ -163,7 +163,7 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC gemdos_cconout()
   DEF ch[1]:STRING
-  ch[0] := ctx[1] !!CHAR
+  ch[0] := asCHAR(ctx[1])
   Write(Output(), ch, 1)
   ctx[0] := E_OK
 ENDPROC
@@ -195,7 +195,7 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC gemdos_cconws()
   DEF src:PTR TO CHAR, len
-  src := ctx[8] !!PTR TO CHAR
+  src := asPTR(ctx[8])
   -> Copy string from emulated memory and write it
   len := 0
   WHILE src[len] <> 0 AND len < 255
@@ -214,7 +214,7 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC gemdos_cconrs()
   DEF maxlen, buf:PTR TO CHAR, ch[2]:ARRAY OF CHAR, pos, done
-  buf := ctx[8] !!PTR TO CHAR
+  buf := asPTR(ctx[8])
   maxlen := buf[0]
   pos := 0
   done := FALSE
@@ -267,7 +267,7 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC gemdos_dsetpath()
   DEF src:PTR TO CHAR, i
-  src := ctx[8] !!PTR TO CHAR
+  src := asPTR(ctx[8])
   i := 0
   WHILE src[i] <> 0 AND i < 127
     gem_path[i] := src[i]
@@ -284,7 +284,7 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC gemdos_dgetpath()
   DEF dst:PTR TO CHAR, i
-  dst := ctx[8] !!PTR TO CHAR
+  dst := asPTR(ctx[8])
   i := 0
   WHILE gem_path[i] <> 0
     dst[i] := gem_path[i]
@@ -302,7 +302,7 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC gemdos_fopen()
   DEF filename:PTR TO CHAR, mode, handle, i, result
-  filename := ctx[8] !!PTR TO CHAR
+  filename := asPTR(ctx[8])
   mode := gemdos_fopen_mode(ctx[1])
   handle := Open(filename, mode)
   IF handle
@@ -315,7 +315,7 @@ PROC gemdos_fopen()
       ENDIF
     ENDFOR
     IF result = ENFHND
-      Close(handle !!BPTR)
+      Close(asBPTR(handle))
     ENDIF
     ctx[0] := result
   ELSE
@@ -332,7 +332,7 @@ PROC gemdos_fclose()
   DEF handle
   handle := ctx[1]
   IF handle >= 3 AND handle <= 15
-    Close(gem_handles[handle] !!BPTR)
+    Close(asBPTR(gem_handles[handle]))
     gem_handles[handle] := 0
     ctx[0] := E_OK
   ELSE
@@ -350,13 +350,13 @@ PROC gemdos_fread()
   DEF handle, count, buf:PTR TO CHAR, result
   handle := ctx[1]
   count := ctx[2]
-  buf := ctx[8] !!PTR TO CHAR
+  buf := asPTR(ctx[8])
 
   IF handle >= 0 AND handle <= 15
     IF handle = 0
       result := Read(Input(), buf, count)
     ELSE
-      result := Read(gem_handles[handle] !!BPTR, buf, count)
+      result := Read(asBPTR(gem_handles[handle]), buf, count)
     ENDIF
     IF result = 0 AND count > 0
       ctx[0] := E_ERROR
@@ -378,7 +378,7 @@ PROC gemdos_fwrite()
   DEF handle, count, buf:PTR TO CHAR, result
   handle := ctx[1]
   count := ctx[2]
-  buf := ctx[8] !!PTR TO CHAR
+  buf := asPTR(ctx[8])
 
   IF handle >= 0 AND handle <= 15
     IF handle = 0
@@ -387,7 +387,7 @@ PROC gemdos_fwrite()
       IF handle = 1 OR handle = 2
         result := Write(Output(), buf, count)
       ELSE
-        result := Write(gem_handles[handle] !!BPTR, buf, count)
+        result := Write(asBPTR(gem_handles[handle]), buf, count)
       ENDIF
     ENDIF
     IF result = 0 AND count > 0
@@ -407,7 +407,7 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC gemdos_fdelete()
   DEF filename:PTR TO CHAR
-  filename := ctx[8] !!PTR TO CHAR
+  filename := asPTR(ctx[8])
   IF DeleteFile(filename)
     ctx[0] := E_OK
   ELSE
@@ -428,7 +428,7 @@ PROC gemdos_fseek()
   mode := gemdos_to_amiga_seek(ctx[3])
 
   IF handle >= 3 AND handle <= 15
-    newpos := Seek(gem_handles[handle] !!BPTR, offset, mode)
+    newpos := Seek(asBPTR(gem_handles[handle]), offset, mode)
     IF newpos < 0
       ctx[0] := E_ERROR
     ELSE
@@ -448,7 +448,7 @@ ENDPROC
 PROC gemdos_fattrib()
   DEF mode, filename:PTR TO CHAR
   mode := ctx[1]
-  filename := ctx[8] !!PTR TO CHAR
+  filename := asPTR(ctx[8])
   IF mode = 0
     -> Get attributes - simplified, returns 0
     ctx[0] := 0
@@ -477,11 +477,11 @@ ENDPROC
 PROC gemdos_fsfirst()
   DEF pattern:PTR TO CHAR, attr, i
   DEF lock_name[256]:ARRAY OF CHAR
-  pattern := ctx[8] !!PTR TO CHAR
+  pattern := asPTR(ctx[8])
   attr := ctx[1]
 
   IF gem_search_lock
-    UnLock(gem_search_lock !!BPTR)
+    UnLock(asBPTR(gem_search_lock))
     gem_search_lock := 0
   ENDIF
 
@@ -496,9 +496,9 @@ PROC gemdos_fsfirst()
   gem_search_lock := Lock(lock_name, -2)
 
   IF gem_search_lock
-    IF Examine(gem_search_lock !!BPTR, fib)
+    IF Examine(asBPTR(gem_search_lock), fib)
       IF gem_dta <> 0
-        FillDTA(gem_dta !!PTR TO CHAR, fib)
+        FillDTA(asPTR(gem_dta), fib)
       ENDIF
       gem_search_first := TRUE
       ctx[0] := E_OK
@@ -513,9 +513,9 @@ ENDPROC
 
 PROC gemdos_fsnext()
   IF gem_search_lock
-    IF ExNext(gem_search_lock !!BPTR, fib)
+    IF ExNext(asBPTR(gem_search_lock), fib)
       IF gem_dta <> 0
-        FillDTA(gem_dta !!PTR TO CHAR, fib)
+        FillDTA(asPTR(gem_dta), fib)
       ENDIF
       ctx[0] := E_OK
     ELSE
@@ -577,10 +577,10 @@ PROC FillDTA(dta:PTR TO CHAR, fib_ptr:PTR TO fileinfoblock)
   dta[21] := 0
 
   -> Set size (LITTLE-ENDIAN for 68000)
-  dta[26] := (fib_ptr.size) !!BYTE AND $FF
-  dta[27] := (fib_ptr.size / 256) !!BYTE AND $FF
-  dta[28] := (fib_ptr.size / 65536) !!BYTE AND $FF
-  dta[29] := (fib_ptr.size / 16777216) !!BYTE AND $FF
+  dta[26] := asCHAR((fib_ptr.size) AND $FF)
+  dta[27] := asCHAR((fib_ptr.size / 256) AND $FF)
+  dta[28] := asCHAR((fib_ptr.size / 65536) AND $FF)
+  dta[29] := asCHAR((fib_ptr.size / 16777216) AND $FF)
 
   -> Copy filename
   i := 0
@@ -598,8 +598,8 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC gemdos_fsrename()
   DEF oldname:PTR TO CHAR, newname:PTR TO CHAR
-  oldname := ctx[8] !!PTR TO CHAR
-  newname := ctx[9] !!PTR TO CHAR
+  oldname := asPTR(ctx[8])
+  newname := asPTR(ctx[9])
 
   IF Rename(oldname, newname)
     ctx[0] := E_OK
@@ -615,7 +615,7 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC gemdos_fmkdir()
   DEF dirname:PTR TO CHAR
-  dirname := ctx[8] !!PTR TO CHAR
+  dirname := asPTR(ctx[8])
   IF CreateDir(dirname)
     ctx[0] := E_OK
   ELSE
@@ -630,7 +630,7 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC gemdos_frmdir()
   DEF dirname:PTR TO CHAR
-  dirname := ctx[8] !!PTR TO CHAR
+  dirname := asPTR(ctx[8])
   IF DeleteFile(dirname)
     ctx[0] := E_OK
   ELSE
@@ -645,7 +645,7 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC gemdos_fchdir()
   DEF pathname:PTR TO CHAR
-  pathname := ctx[8] !!PTR TO CHAR
+  pathname := asPTR(ctx[8])
   -> Use Dsetpath logic
   gemdos_dsetpath()
 ENDPROC
@@ -656,7 +656,7 @@ ENDPROC
 -> D0 = DTA pointer
 -> ---------------------------------------------------------------------------
 PROC gemdos_fgetdta()
-  ctx[0] := gem_dta !!LONG
+  ctx[0] := asLONG(gem_dta)
 ENDPROC
 
 
@@ -667,7 +667,7 @@ ENDPROC
 PROC gemdos_fsetdta()
   DEF ptr
   ptr := ctx[1]
-  gem_dta := ptr !!PTR TO CHAR
+  gem_dta := asPTR(ptr)
   ctx[0] := E_OK
 ENDPROC
 
@@ -685,7 +685,7 @@ PROC gemdos_malloc()
   IF ptr = 0
     ctx[0] := 0
   ELSE
-    ctx[0] := ptr !!LONG
+    ctx[0] := asLONG(ptr)
   ENDIF
 ENDPROC
 
@@ -696,11 +696,11 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC gemdos_mfree()
   DEF ptr
-  ptr := ctx[1] !!PTR TO CHAR
+  ptr := asPTR(ctx[1])
   -> Note: AmigaOS FreeMem needs the size, which we don't know
   -> In a real implementation, we'd track allocated block sizes
   -> For now, free with a reasonable size or just stub
-  FreeMem(ptr !!APTR, 0)    -> This won't work properly without size tracking
+  FreeMem(asAPTR(ptr), 0)    -> This won't work properly without size tracking
   ctx[0] := E_OK
 ENDPROC
 
@@ -736,14 +736,14 @@ PROC load_prg(filename:PTR TO CHAR)
   fh := Open(filename, 1005)
   IF fh
     IF Read(fh, header, 32) >= 32
-      text_size := header[2] !!LONG
-      data_size := header[6] !!LONG
-      bss_size := header[10] !!LONG
+      text_size := asLONG(header[2])
+      data_size := asLONG(header[6])
+      bss_size := asLONG(header[10])
       total_size := text_size + data_size + bss_size
 
-      addr := AllocMem(total_size, 65538) !!PTR TO CHAR
+      addr := asPTR(AllocMem(total_size, 65538))
       IF addr
-        result := addr !!VALUE
+        result := addr
         IF text_size > 0
           IF Read(fh, addr, text_size) < text_size
             result := 0
@@ -773,7 +773,7 @@ ENDPROC result
 PROC gemdos_pexec()
   DEF mode, filename:PTR TO CHAR
   mode := ctx[1]
-  filename := ctx[8] !!PTR TO CHAR
+  filename := asPTR(ctx[8])
 
   IF mode = 0
     ctx[0] := load_prg(filename)
@@ -863,7 +863,7 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC bios_dispatch()
   DEF fn
-  fn := ctx[0] !!INT
+  fn := asINT(ctx[0])
 
   SELECT fn
 
@@ -917,7 +917,7 @@ PROC bios_bconin()
   IF dev = 0
     ch[0] := 0
     Read(Input(), ch, 1)
-    ctx[0] := ch[0] !!LONG
+    ctx[0] := asLONG(ch[0])
   ELSE
     ctx[0] := E_ERROR
   ENDIF
@@ -932,7 +932,7 @@ PROC bios_bconout()
   DEF dev, ch[1]:STRING
   dev := ctx[1]
   IF dev = 0
-    ch[0] := ctx[2] !!CHAR
+    ch[0] := asCHAR(ctx[2])
     Write(Output(), ch, 1)
     ctx[0] := E_OK
   ELSE
@@ -949,11 +949,11 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC bios_rwabs()
   DEF rw, dev, sector, count, buf:PTR TO CHAR
-  rw := ctx[0] !!INT
+  rw := asINT(ctx[0])
   dev := ctx[1]
   sector := ctx[2]
   count := ctx[3]
-  buf := ctx[8] !!PTR TO CHAR
+  buf := asPTR(ctx[8])
   -> Stub - no raw disk access on AmigaOS
   ctx[0] := E_ERROR
 ENDPROC
@@ -1063,7 +1063,7 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC xbios_dispatch()
   DEF fn
-  fn := ctx[0] !!INT
+  fn := asINT(ctx[0])
 
   SELECT fn
 
@@ -1287,6 +1287,16 @@ PROC gem_TextFontInit16(f:PTR TO textfont) IS NATIVE { struct TextFont *tf = (st
 PROC gem_TextFontInit8(f:PTR TO textfont) IS NATIVE { struct TextFont *tf = (struct TextFont *)gem_font_8x8; tf->tf_Message.mn_ReplyPort=NULL; tf->tf_Message.mn_Length=sizeof(struct TextFont); tf->tf_YSize=8; tf->tf_Style=0; tf->tf_Flags=0; tf->tf_XSize=8; tf->tf_Baseline=7; tf->tf_BoldSmear=0; tf->tf_Accessors=0; tf->tf_LoChar=0; tf->tf_HiChar=255; tf->tf_CharData=(APTR)gem_font_data_8x8; tf->tf_Modulo=8; tf->tf_CharLoc=(APTR)gem_font_loc_8x8; tf->tf_CharSpace=(APTR)gem_font_width_8x8; tf->tf_CharKern=NULL; } ENDNATIVE
 
 PROC gem_CloseLibrary(base:VALUE) IS NATIVE { CloseLibrary((struct Library *)} base {); } ENDNATIVE
+
+-> Type cast helpers (avoid expr !!type in code, keep only in NATIVE return annotations)
+PROC asINT(v:VALUE) IS NATIVE { return (int)v; } ENDNATIVE !!INT
+PROC asLONG(v:VALUE) IS NATIVE { return (long)v; } ENDNATIVE !!LONG
+PROC asCHAR(v:VALUE) IS NATIVE { return (unsigned char)v; } ENDNATIVE !!CHAR
+PROC asPTR(v:VALUE) IS NATIVE { return (unsigned char*)v; } ENDNATIVE !!PTR TO CHAR
+PROC asWIN(v:VALUE) IS NATIVE { return (struct Window*)v; } ENDNATIVE !!PTR TO window
+PROC asBPTR(v:VALUE) IS NATIVE { return (BPTR)v; } ENDNATIVE !!BPTR
+PROC asAPTR(v:VALUE) IS NATIVE { return (APTR)v; } ENDNATIVE !!APTR
+PROC asFONT(v:VALUE) IS NATIVE { return (struct TextFont*)v; } ENDNATIVE !!PTR TO textfont
 
 -> Intuition window helper wrappers
 PROC gem_CloseWindow(win:PTR TO window) IS NATIVE { CloseWindow((struct Window *)} win {); } ENDNATIVE
@@ -2045,7 +2055,7 @@ PROC gem_wind_close()
   idx := gem_wind_find_handle(handle)
   IF idx >= 0
     IF gem_window_list[idx] <> 0
-      gem_HideWindow(gem_window_list[idx] !!PTR TO window)
+      gem_HideWindow(asWIN(gem_window_list[idx]))
     ENDIF
     gem_wind_state[idx] := WS_CLOSED
     ctx[0] := 1
@@ -2060,7 +2070,7 @@ PROC gem_wind_delete()
   idx := gem_wind_find_handle(handle)
   IF idx >= 0
     IF gem_window_list[idx] <> 0
-      gem_CloseWindow(gem_window_list[idx] !!PTR TO window)
+      gem_CloseWindow(asWIN(gem_window_list[idx]))
       gem_window_list[idx] := 0
     ENDIF
     gem_wind_state[idx] := WS_CLOSED
@@ -2128,23 +2138,23 @@ PROC gem_wind_set()
       gem_wind_x[idx] := ctx[5]; gem_wind_y[idx] := ctx[6]
       gem_wind_w[idx] := ctx[7]; gem_wind_h[idx] := ctx[8]
       IF gem_window_list[idx] <> 0
-        gem_MoveWindow(gem_window_list[idx] !!PTR TO window, gem_wind_x[idx], gem_wind_y[idx])
-        gem_SizeWindow(gem_window_list[idx] !!PTR TO window, gem_wind_w[idx], gem_wind_h[idx])
+        gem_MoveWindow(asWIN(gem_window_list[idx]), gem_wind_x[idx], gem_wind_y[idx])
+        gem_SizeWindow(asWIN(gem_window_list[idx]), gem_wind_w[idx], gem_wind_h[idx])
       ENDIF
     CASE 3 -> WF_NEWSIZE
       gem_wind_w[idx] := ctx[5]; gem_wind_h[idx] := ctx[6]
       IF gem_window_list[idx] <> 0
-        gem_SizeWindow(gem_window_list[idx] !!PTR TO window, gem_wind_w[idx], gem_wind_h[idx])
+        gem_SizeWindow(asWIN(gem_window_list[idx]), gem_wind_w[idx], gem_wind_h[idx])
       ENDIF
     CASE 4 -> WF_ICONIFY
       gem_wind_state[idx] := WS_ICONIFIED
       IF gem_window_list[idx] <> 0
-        gem_HideWindow(gem_window_list[idx] !!PTR TO window)
+        gem_HideWindow(asWIN(gem_window_list[idx]))
       ENDIF
     CASE 5 -> WF_TOP
     CASE 10 -> WF_NAME
       IF gem_window_list[idx] <> 0
-        gem_WindowTitle(gem_window_list[idx] !!PTR TO window, ctx[5] !!PTR TO CHAR)
+        gem_WindowTitle(asWIN(gem_window_list[idx]), asPTR(ctx[5]))
       ENDIF
     ENDSELECT
     ctx[0] := E_OK
@@ -2471,7 +2481,7 @@ PROC gem_graf_mouse()
   ENDIF
 
   -> Attempt to update the pointer via AmigaOS Intuition if a window is open
-  win := gem_window_list[0] !!PTR TO window
+  win := asWIN(gem_window_list[0])
   IF gem_mouse_visible AND win <> 0
     IF gem_mouse_user_active
       gem_SetPointer(win, gem_mouse_user_data, 16, 16, gem_mouse_user_hotx, gem_mouse_user_hoty)
@@ -2575,22 +2585,22 @@ DEF vdi_rgb[48]:ARRAY OF CHAR -> 16 colours x 3 bytes (R,G,B)
 PROC vdi_init_rgb()
   DEF v
   DEF vdi_rgb[48]:ARRAY OF CHAR -> 16 colours x 3 bytes (R,G,B)
-  v := 0; vdi_rgb[0] := v !!CHAR; vdi_rgb[1] := v !!CHAR; vdi_rgb[2] := v !!CHAR
-  v := 0; vdi_rgb[3] := v !!CHAR; vdi_rgb[4] := v !!CHAR; v := 200; vdi_rgb[5] := v !!CHAR
-  v := 0; vdi_rgb[6] := v !!CHAR; v := 200; vdi_rgb[7] := v !!CHAR; v := 0; vdi_rgb[8] := v !!CHAR
-  v := 0; vdi_rgb[9] := v !!CHAR; v := 200; vdi_rgb[10] := v !!CHAR; v := 200; vdi_rgb[11] := v !!CHAR
-  v := 200; vdi_rgb[12] := v !!CHAR; v := 0; vdi_rgb[13] := v !!CHAR; v := 0; vdi_rgb[14] := v !!CHAR
-  v := 200; vdi_rgb[15] := v !!CHAR; v := 0; vdi_rgb[16] := v !!CHAR; v := 200; vdi_rgb[17] := v !!CHAR
-  v := 200; vdi_rgb[18] := v !!CHAR; v := 200; vdi_rgb[19] := v !!CHAR; v := 0; vdi_rgb[20] := v !!CHAR
-  v := 200; vdi_rgb[21] := v !!CHAR; v := 200; vdi_rgb[22] := v !!CHAR; v := 200; vdi_rgb[23] := v !!CHAR
-  v := 100; vdi_rgb[24] := v !!CHAR; v := 100; vdi_rgb[25] := v !!CHAR; v := 100; vdi_rgb[26] := v !!CHAR
-  v := 0; vdi_rgb[27] := v !!CHAR; v := 0; vdi_rgb[28] := v !!CHAR; v := 100; vdi_rgb[29] := v !!CHAR
-  v := 0; vdi_rgb[30] := v !!CHAR; v := 100; vdi_rgb[31] := v !!CHAR; v := 0; vdi_rgb[32] := v !!CHAR
-  v := 0; vdi_rgb[33] := v !!CHAR; v := 100; vdi_rgb[34] := v !!CHAR; v := 100; vdi_rgb[35] := v !!CHAR
-  v := 100; vdi_rgb[36] := v !!CHAR; v := 0; vdi_rgb[37] := v !!CHAR; v := 0; vdi_rgb[38] := v !!CHAR
-  v := 100; vdi_rgb[39] := v !!CHAR; v := 0; vdi_rgb[40] := v !!CHAR; v := 100; vdi_rgb[41] := v !!CHAR
-  v := 100; vdi_rgb[42] := v !!CHAR; v := 100; vdi_rgb[43] := v !!CHAR; v := 0; vdi_rgb[44] := v !!CHAR
-  v := 255; vdi_rgb[45] := v !!CHAR; v := 255; vdi_rgb[46] := v !!CHAR; v := 255; vdi_rgb[47] := v !!CHAR
+  v := 0; vdi_rgb[0] := asCHAR(v); vdi_rgb[1] := asCHAR(v); vdi_rgb[2] := asCHAR(v)
+  v := 0; vdi_rgb[3] := asCHAR(v); vdi_rgb[4] := asCHAR(v); v := 200; vdi_rgb[5] := asCHAR(v)
+  v := 0; vdi_rgb[6] := asCHAR(v); v := 200; vdi_rgb[7] := asCHAR(v); v := 0; vdi_rgb[8] := asCHAR(v)
+  v := 0; vdi_rgb[9] := asCHAR(v); v := 200; vdi_rgb[10] := asCHAR(v); v := 200; vdi_rgb[11] := asCHAR(v)
+  v := 200; vdi_rgb[12] := asCHAR(v); v := 0; vdi_rgb[13] := asCHAR(v); v := 0; vdi_rgb[14] := asCHAR(v)
+  v := 200; vdi_rgb[15] := asCHAR(v); v := 0; vdi_rgb[16] := asCHAR(v); v := 200; vdi_rgb[17] := asCHAR(v)
+  v := 200; vdi_rgb[18] := asCHAR(v); v := 200; vdi_rgb[19] := asCHAR(v); v := 0; vdi_rgb[20] := asCHAR(v)
+  v := 200; vdi_rgb[21] := asCHAR(v); v := 200; vdi_rgb[22] := asCHAR(v); v := 200; vdi_rgb[23] := asCHAR(v)
+  v := 100; vdi_rgb[24] := asCHAR(v); v := 100; vdi_rgb[25] := asCHAR(v); v := 100; vdi_rgb[26] := asCHAR(v)
+  v := 0; vdi_rgb[27] := asCHAR(v); v := 0; vdi_rgb[28] := asCHAR(v); v := 100; vdi_rgb[29] := asCHAR(v)
+  v := 0; vdi_rgb[30] := asCHAR(v); v := 100; vdi_rgb[31] := asCHAR(v); v := 0; vdi_rgb[32] := asCHAR(v)
+  v := 0; vdi_rgb[33] := asCHAR(v); v := 100; vdi_rgb[34] := asCHAR(v); v := 100; vdi_rgb[35] := asCHAR(v)
+  v := 100; vdi_rgb[36] := asCHAR(v); v := 0; vdi_rgb[37] := asCHAR(v); v := 0; vdi_rgb[38] := asCHAR(v)
+  v := 100; vdi_rgb[39] := asCHAR(v); v := 0; vdi_rgb[40] := asCHAR(v); v := 100; vdi_rgb[41] := asCHAR(v)
+  v := 100; vdi_rgb[42] := asCHAR(v); v := 100; vdi_rgb[43] := asCHAR(v); v := 0; vdi_rgb[44] := asCHAR(v)
+  v := 255; vdi_rgb[45] := asCHAR(v); v := 255; vdi_rgb[46] := asCHAR(v); v := 255; vdi_rgb[47] := asCHAR(v)
 ENDPROC
 
 -> VDI line type patterns (dash/dot definitions)
@@ -3157,8 +3167,8 @@ PROC gem_init_font_8x16()
 
   -> Fill location table (char N starts at N*16 bytes)
   FOR i := 0 TO 255
-    gem_font_loc_8x16[i * 2] := (i * 16) !!CHAR
-    gem_font_loc_8x16[i * 2 + 1] := ((i * 16) / 256) !!CHAR
+    gem_font_loc_8x16[i * 2] := asCHAR(i * 16)
+    gem_font_loc_8x16[i * 2 + 1] := asCHAR(((i * 16) / 256))
   ENDFOR
 
   -> Atari ST 8x16 system font data (256 glyphs, 16 bytes each)
@@ -3439,7 +3449,7 @@ PROC gem_init_font_8x16()
         f[c * 16 + r] = glyphs[c][r];
   } ENDNATIVE
   -> Allocate and populate TextFont structure
-  gem_font_8x16 := AllocMem(120, 65538) !!PTR TO textfont
+  gem_font_8x16 := asFONT(AllocMem(120, 65538))
   IF gem_font_8x16
     gem_TextFontInit16(gem_font_8x16)
     AddFont(gem_font_8x16)
@@ -3456,7 +3466,7 @@ PROC gem_init_font_8x8()
   ENDFOR
 
   FOR i := 0 TO 255
-    gem_font_loc_8x8[i] := (i * 8) !!CHAR
+    gem_font_loc_8x8[i] := asCHAR(i * 8)
   ENDFOR
 
   -> Downsample 8x16 to 8x8 by taking every 2nd row
@@ -3466,7 +3476,7 @@ PROC gem_init_font_8x8()
     ENDFOR
   ENDFOR
 
-  gem_font_8x8 := AllocMem(120, 65538) !!PTR TO textfont
+  gem_font_8x8 := asFONT(AllocMem(120, 65538))
   IF gem_font_8x8
     gem_TextFontInit8(gem_font_8x8)
     AddFont(gem_font_8x8)
@@ -3497,9 +3507,9 @@ PROC main()
   DEF arg:PTR TO CHAR
 
   -> Initialize handle table (GEMDOS handle -> AmigaOS BPTR mapping)
-  gem_handles[0] := Input() !!VALUE
-  gem_handles[1] := Output() !!VALUE
-  gem_handles[2] := Output() !!VALUE
+  gem_handles[0] := Input()
+  gem_handles[1] := Output()
+  gem_handles[2] := Output()
   FOR i := 3 TO 15
     gem_handles[i] := 0
   ENDFOR
@@ -3568,7 +3578,7 @@ PROC main()
     PutStr('Testing...\n')
 
     -> Test Cconws ($09): write a string via direct call
-    ctx[8] := temp_string !!PTR TO CHAR
+    ctx[8] := asPTR(temp_string)
     temp_string[0] := 72; temp_string[1] := 101; temp_string[2] := 108; temp_string[3] := 108; temp_string[4] := 111
     temp_string[5] := 0
     gemdos_cconws()
