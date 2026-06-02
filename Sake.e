@@ -1288,6 +1288,16 @@ PROC gem_TextFontInit8(f:PTR TO textfont) IS NATIVE { struct TextFont *tf = (str
 
 PROC gem_CloseLibrary(base:VALUE) IS NATIVE { CloseLibrary((struct Library *)} base {); } ENDNATIVE
 
+-> Intuition window helper wrappers
+PROC gem_CloseWindow(win:PTR TO window) IS NATIVE { CloseWindow((struct Window *)} win {); } ENDNATIVE
+PROC gem_HideWindow(win:PTR TO window) IS NATIVE { HideWindow((struct Window *)} win {); } ENDNATIVE
+PROC gem_ShowWindow(win:PTR TO window) IS NATIVE { ShowWindow((struct Window *)} win {); } ENDNATIVE
+PROC gem_WindowTitle(win:PTR TO window, title:PTR TO CHAR) IS NATIVE { WindowTitle((struct Window *)} win {, (STRPTR)} title {); } ENDNATIVE
+PROC gem_MoveWindow(win:PTR TO window, x:VALUE, y:VALUE) IS NATIVE { MoveWindow((struct Window *)} win {, (long)} x {, (long)} y {); } ENDNATIVE
+PROC gem_SizeWindow(win:PTR TO window, w:VALUE, h:VALUE) IS NATIVE { SizeWindow((struct Window *)} win {, (long)} w {, (long)} h {); } ENDNATIVE
+
+PROC gem_OpenWindow(x:VALUE, y:VALUE, w:VALUE, h:VALUE, title:PTR TO CHAR, kind:VALUE) IS NATIVE { struct Window *win; struct NewWindow nw; long flags = WFLG_SMART_REFRESH | WFLG_ACTIVATE | WFLG_GIMMEZEROZERO; long idcmp = IDCMP_CLOSEWINDOW | IDCMP_REFRESHWINDOW | IDCMP_SIZEVERIFY | IDCMP_NEWSIZE | IDCMP_MOUSEBUTTONS | IDCMP_MOUSEMOVE; if (kind & 2) flags |= WFLG_CLOSEGADGET; if (kind & 4) flags |= WFLG_DEPTHGADGET; if (kind & 8) flags |= WFLG_DRAGBAR; if (kind & 16) flags |= WFLG_SIZEGADGET; nw.LeftEdge = (long)} x {; nw.TopEdge = (long)} y {; nw.Width = (long)} w {; nw.Height = (long)} h {; nw.DetailPen = 0; nw.BlockPen = 1; nw.Title = (STRPTR)} title {; nw.Flags = flags; nw.IDCMPFlags = idcmp; nw.Type = WBENCHSCREEN; nw.FirstGadget = NULL; nw.CheckMark = NULL; nw.Screen = NULL; nw.BitMap = NULL; nw.MinWidth = 50; nw.MinHeight = 30; nw.MaxWidth = 2048; nw.MaxHeight = 2048; win = OpenWindow(&nw); return (unsigned long)win; } ENDNATIVE !!VALUE
+
 -> ---------------------------------------------------------------------------
 -> Open gadtools.library with fallback to gadtools13.library
 -> Returns 1 on success, 0 on failure
@@ -2000,7 +2010,7 @@ PROC gem_wind_create()
 ENDPROC
 
 PROC gem_wind_open()
-  DEF handle, idx
+  DEF handle, idx, title[128]:ARRAY OF CHAR
   handle := ctx[3]
   idx := gem_wind_find_handle(handle)
   IF idx >= 0
@@ -2017,7 +2027,13 @@ PROC gem_wind_open()
     gem_wind_full_y[idx] := ctx[5]
     gem_wind_full_w[idx] := ctx[6]
     gem_wind_full_h[idx] := ctx[7]
-    ctx[0] := 1
+    title[0] := 0
+    gem_window_list[idx] := gem_OpenWindow(gem_wind_x[idx], gem_wind_y[idx], gem_wind_w[idx], gem_wind_h[idx], title, gem_wind_kind[idx])
+    IF gem_window_list[idx] <> 0
+      ctx[0] := 1
+    ELSE
+      ctx[0] := 0
+    ENDIF
   ELSE
     ctx[0] := 0
   ENDIF
@@ -2028,6 +2044,9 @@ PROC gem_wind_close()
   handle := ctx[3]
   idx := gem_wind_find_handle(handle)
   IF idx >= 0
+    IF gem_window_list[idx] <> 0
+      gem_HideWindow(gem_window_list[idx] !!PTR TO window)
+    ENDIF
     gem_wind_state[idx] := WS_CLOSED
     ctx[0] := 1
   ELSE
@@ -2040,6 +2059,10 @@ PROC gem_wind_delete()
   handle := ctx[3]
   idx := gem_wind_find_handle(handle)
   IF idx >= 0
+    IF gem_window_list[idx] <> 0
+      gem_CloseWindow(gem_window_list[idx] !!PTR TO window)
+      gem_window_list[idx] := 0
+    ENDIF
     gem_wind_state[idx] := WS_CLOSED
     gem_wind_handle[idx] := 0
     ctx[0] := 1
@@ -2104,12 +2127,25 @@ PROC gem_wind_set()
     CASE 1 -> WF_CURRXYWH
       gem_wind_x[idx] := ctx[5]; gem_wind_y[idx] := ctx[6]
       gem_wind_w[idx] := ctx[7]; gem_wind_h[idx] := ctx[8]
+      IF gem_window_list[idx] <> 0
+        gem_MoveWindow(gem_window_list[idx] !!PTR TO window, gem_wind_x[idx], gem_wind_y[idx])
+        gem_SizeWindow(gem_window_list[idx] !!PTR TO window, gem_wind_w[idx], gem_wind_h[idx])
+      ENDIF
     CASE 3 -> WF_NEWSIZE
       gem_wind_w[idx] := ctx[5]; gem_wind_h[idx] := ctx[6]
+      IF gem_window_list[idx] <> 0
+        gem_SizeWindow(gem_window_list[idx] !!PTR TO window, gem_wind_w[idx], gem_wind_h[idx])
+      ENDIF
     CASE 4 -> WF_ICONIFY
       gem_wind_state[idx] := WS_ICONIFIED
+      IF gem_window_list[idx] <> 0
+        gem_HideWindow(gem_window_list[idx] !!PTR TO window)
+      ENDIF
     CASE 5 -> WF_TOP
     CASE 10 -> WF_NAME
+      IF gem_window_list[idx] <> 0
+        gem_WindowTitle(gem_window_list[idx] !!PTR TO window, ctx[5] !!PTR TO CHAR)
+      ENDIF
     ENDSELECT
     ctx[0] := E_OK
   ELSE

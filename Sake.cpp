@@ -5211,7 +5211,7 @@ void gem_wind_create() {
 }
 
 void gem_wind_open() {
-  long handle, idx;
+  long handle, idx; char title[128];
   handle = ctx[3];
   idx = gem_wind_find_handle(handle);
   if( idx >= 0) {
@@ -5228,7 +5228,13 @@ void gem_wind_open() {
     gem_wind_full_y[idx] = ctx[5];
     gem_wind_full_w[idx] = ctx[6];
     gem_wind_full_h[idx] = ctx[7];
-    ctx[0] = 1;
+    title[0] = 0;
+    gem_window_list[idx] =  struct Window *win; struct NewWindow nw; long flags = WFLG_SMART_REFRESH | WFLG_ACTIVATE | WFLG_GIMMEZEROZERO; long idcmp = IDCMP_CLOSEWINDOW | IDCMP_REFRESHWINDOW | IDCMP_SIZEVERIFY | IDCMP_NEWSIZE | IDCMP_MOUSEBUTTONS | IDCMP_MOUSEMOVE; if (kind & 2) flags |= WFLG_CLOSEGADGET; if (kind & 4) flags |= WFLG_DEPTHGADGET; if (kind & 8) flags |= WFLG_DRAGBAR; if (kind & 16) flags |= WFLG_SIZEGADGET; nw.LeftEdge = (long)gem_wind_x[idx] ; nw.TopEdge = (long)gem_wind_y[idx] ; nw.Width = (long)gem_wind_w[idx] ; nw.Height = (long)gem_wind_h[idx] ; nw.DetailPen = 0; nw.BlockPen = 1; nw.Title = (STRPTR)title ; nw.Flags = flags; nw.IDCMPFlags = idcmp; nw.Type = WBENCHSCREEN; nw.FirstGadget = NULL; nw.CheckMark = NULL; nw.Screen = NULL; nw.BitMap = NULL; nw.MinWidth = 50; nw.MinHeight = 30; nw.MaxWidth = 2048; nw.MaxHeight = 2048; win = OpenWindow(&nw); return (unsigned long)win; ;
+    if( gem_window_list[idx] != 0) {
+      ctx[0] = 1;
+    } else {
+      ctx[0] = 0;
+    }
   } else {
     ctx[0] = 0;
   }
@@ -5240,6 +5246,9 @@ void gem_wind_close() {
   handle = ctx[3];
   idx = gem_wind_find_handle(handle);
   if( idx >= 0) {
+    if( gem_window_list[idx] != 0) {
+       HideWindow((struct Window *)(struct Window*) gem_window_list[idx]  ); ;
+    }
     gem_wind_state[idx] = WS_CLOSED;
     ctx[0] = 1;
   } else {
@@ -5253,6 +5262,10 @@ void gem_wind_delete() {
   handle = ctx[3];
   idx = gem_wind_find_handle(handle);
   if( idx >= 0) {
+    if( gem_window_list[idx] != 0) {
+       CloseWindow((struct Window *)(struct Window*) gem_window_list[idx]  ); ;
+      gem_window_list[idx] = 0;
+    }
     gem_wind_state[idx] = WS_CLOSED;
     gem_wind_handle[idx] = 0;
     ctx[0] = 1;
@@ -5327,16 +5340,29 @@ void gem_wind_set() {
     case 1 :// WF_CURRXYWH
       gem_wind_x[idx] = ctx[5]; gem_wind_y[idx] = ctx[6];
       gem_wind_w[idx] = ctx[7]; gem_wind_h[idx] = ctx[8];
+      if( gem_window_list[idx] != 0) {
+         MoveWindow((struct Window *)(struct Window*) gem_window_list[idx]  , (long)gem_wind_x[idx] , (long)gem_wind_y[idx] ); ;
+         SizeWindow((struct Window *)(struct Window*) gem_window_list[idx]  , (long)gem_wind_w[idx] , (long)gem_wind_h[idx] ); ;
+      }
     	break;
     case 3 :// WF_NEWSIZE
       gem_wind_w[idx] = ctx[5]; gem_wind_h[idx] = ctx[6];
+      if( gem_window_list[idx] != 0) {
+         SizeWindow((struct Window *)(struct Window*) gem_window_list[idx]  , (long)gem_wind_w[idx] , (long)gem_wind_h[idx] ); ;
+      }
     	break;
     case 4 :// WF_ICONIFY
       gem_wind_state[idx] = WS_ICONIFIED;
+      if( gem_window_list[idx] != 0) {
+         HideWindow((struct Window *)(struct Window*) gem_window_list[idx]  ); ;
+      }
     	break;
     case 5 :// WF_TOP
     	break;
     case 10 :// WF_NAME
+      if( gem_window_list[idx] != 0) {
+         WindowTitle((struct Window *)(struct Window*) gem_window_list[idx]  , (STRPTR)(char*) ctx[5]  ); ;
+      }
     	break;
     }
     ctx[0] = E_OK;
