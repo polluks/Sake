@@ -2440,44 +2440,6 @@ void SetTopaz(short size) {
 
 #include <intuition/intuition.h>
 
-/*** target/intuition/cghooks ***/
-/* $VER: cghooks.h 38.1 (11.11.1991) */ 
-
-#include <intuition/cghooks.h>
-
-/*** target/intuition/iobsolete ***/
-/* $VER: iobsolete.h 38.1 (22.1.1992) */ 
-
-#include <intuition/iobsolete.h>
-
-/*** target/intuition/gadgetclass ***/
-/* $VER: gadgetclass.h 44.1 (19.10.1999) */ 
-
-#include <intuition/gadgetclass.h>
-class gpgoactive;
-class gphelptest;
-
-
-class gpgoactive: public gpInput {
-};
-class gphelptest: public gpHitTest {
-};
-
-/*** target/libraries/gadtools ***/
-/* $VER: gadtools.h 39.9 (19.8.1992) */ 
-
-#include <libraries/gadtools.h>
-
-/*** target/gadtools ***/
-/* $VER: gadtools_protos.h 40.1 (17.5.1996) */ 
-
-
-#include <proto/gadtools.h>
-
-
-struct Library* GadToolsBase = NULL;
-
-
 /*** :/root/g/Sake/Sake ***/
 // Sake - Atari Kernel Emulator
 // GEMDOS (TRAP #1), BIOS (TRAP #2), XBIOS (TRAP #3), GEM AES/VDI
@@ -2566,6 +2528,7 @@ extern long gem_aes_id;               // AES application ID counter
 extern long gem_window_list[16]; // Open window handles (Intuition Window ptrs)
 extern long gem_aes_global[32]; // AES global array
 extern long gem_scrn_w; extern long gem_scrn_h;   // Virtual screen dimensions
+extern long gadtools_base;            // gadtools.library base (opened at runtime)
 
 // Window info structure
 extern long gem_wind_kind[MAX_WINDOWS];
@@ -2775,6 +2738,7 @@ void xbios_settime();
 void xbios_bioskeys();
 void xbios_kbrate();
 void xbios_prtblk();
+BOOLEAN gem_init_gadtools();
 void gem_wind_alloc();
 long gem_wind_find_handle(long h);
 void gem_msg_push(long msg, long src, long len);
@@ -2940,6 +2904,7 @@ long gem_aes_id;               // AES application ID counter
 long gem_window_list[16]; // Open window handles (Intuition Window ptrs)
 long gem_aes_global[32]; // AES global array
 long gem_scrn_w; long gem_scrn_h;   // Virtual screen dimensions
+long gadtools_base;            // gadtools.library base (opened at runtime)
 
 // Window info structure
 long gem_wind_kind[MAX_WINDOWS];
@@ -4394,6 +4359,19 @@ void xbios_prtblk() {
   ctx[0] = E_OK;
 	return ;
 }
+
+// ---------------------------------------------------------------------------
+// Open gadtools.library with fallback to gadtools13.library
+// Returns 1 on success, 0 on failure
+// ---------------------------------------------------------------------------
+BOOLEAN gem_init_gadtools() {
+  gadtools_base = 0;
+   extern unsigned long gadtools_base; gadtools_base = (unsigned long)OpenLibrary("gadtools.library", 0); ;
+  if( gadtools_base == 0) {
+     extern unsigned long gadtools_base; gadtools_base = (unsigned long)OpenLibrary("gadtools13.library", 0); ;
+  }
+	return - (gadtools_base != 0);
+} 
 
 // Find a free window slot, returns handle or -1 via ctx[0]
 void gem_wind_alloc() {
@@ -6820,6 +6798,7 @@ try {
   gem_graf_accel_key = 0;
   gem_mouse_init();
   gem_init_fonts();
+  gem_init_gadtools();
   vdi_init_rgb();
   vdi_init_line_pats();
   vdi_handle = -1;

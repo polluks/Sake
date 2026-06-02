@@ -3,7 +3,7 @@
 -> Maps Atari ST system calls to AmigaOS libraries
 
 OPT POINTER, NATIVE
-MODULE 'exec/tasks', 'dos', 'exec', 'intuition/intuition', 'gadtools', 'graphics'
+MODULE 'exec/tasks', 'dos', 'exec', 'intuition/intuition', 'graphics'
 
 -> ---------------------------------------------------------------------------
 -> Global state
@@ -25,6 +25,7 @@ DEF gem_aes_id               -> AES application ID counter
 DEF gem_window_list[16]:ARRAY OF VALUE -> Open window handles (Intuition Window ptrs)
 DEF gem_aes_global[32]:ARRAY OF VALUE -> AES global array
 DEF gem_scrn_w, gem_scrn_h   -> Virtual screen dimensions
+DEF gadtools_base            -> gadtools.library base (opened at runtime)
 
 -> GEMDOS constants for Seek mode mapping
 CONST GEMDOS_SEEK_START = 0, GEMDOS_SEEK_CUR = 1, GEMDOS_SEEK_END = 2
@@ -1284,6 +1285,23 @@ PROC gem_SetPointer(window:PTR TO window, data:ARRAY OF VALUE, w:VALUE, h:VALUE,
 PROC gem_ClearPointer(window:PTR TO window) IS NATIVE { ClearPointer((struct Window *)} window {); } ENDNATIVE
 PROC gem_TextFontInit16(f:PTR TO textfont) IS NATIVE { struct TextFont *tf = (struct TextFont *)gem_font_8x16; tf->tf_Message.mn_ReplyPort=NULL; tf->tf_Message.mn_Length=sizeof(struct TextFont); tf->tf_YSize=16; tf->tf_Style=0; tf->tf_Flags=0; tf->tf_XSize=8; tf->tf_Baseline=13; tf->tf_BoldSmear=0; tf->tf_Accessors=0; tf->tf_LoChar=0; tf->tf_HiChar=255; tf->tf_CharData=(APTR)gem_font_data_8x16; tf->tf_Modulo=8; tf->tf_CharLoc=(APTR)gem_font_loc_8x16; tf->tf_CharSpace=(APTR)gem_font_width_8x16; tf->tf_CharKern=NULL; } ENDNATIVE
 PROC gem_TextFontInit8(f:PTR TO textfont) IS NATIVE { struct TextFont *tf = (struct TextFont *)gem_font_8x8; tf->tf_Message.mn_ReplyPort=NULL; tf->tf_Message.mn_Length=sizeof(struct TextFont); tf->tf_YSize=8; tf->tf_Style=0; tf->tf_Flags=0; tf->tf_XSize=8; tf->tf_Baseline=7; tf->tf_BoldSmear=0; tf->tf_Accessors=0; tf->tf_LoChar=0; tf->tf_HiChar=255; tf->tf_CharData=(APTR)gem_font_data_8x8; tf->tf_Modulo=8; tf->tf_CharLoc=(APTR)gem_font_loc_8x8; tf->tf_CharSpace=(APTR)gem_font_width_8x8; tf->tf_CharKern=NULL; } ENDNATIVE
+
+PROC gem_CloseLibrary(base:VALUE) IS NATIVE { CloseLibrary((struct Library *)} base {); } ENDNATIVE
+
+-> ---------------------------------------------------------------------------
+-> Open gadtools.library with fallback to gadtools13.library
+-> Returns 1 on success, 0 on failure
+-> ---------------------------------------------------------------------------
+PROC gem_init_gadtools()
+  gadtools_base := 0
+  gem_OpenGadTools()
+  IF gadtools_base = 0
+    gem_OpenGadTools13()
+  ENDIF
+ENDPROC (gadtools_base <> 0)
+
+PROC gem_OpenGadTools() IS NATIVE { extern unsigned long gadtools_base; gadtools_base = (unsigned long)OpenLibrary("gadtools.library", 0); } ENDNATIVE
+PROC gem_OpenGadTools13() IS NATIVE { extern unsigned long gadtools_base; gadtools_base = (unsigned long)OpenLibrary("gadtools13.library", 0); } ENDNATIVE
 
 -> AES global arrays (as per GEM AES parameter block spec)
 DEF gem_control[12]:ARRAY OF VALUE -> control array
@@ -3483,6 +3501,7 @@ PROC main()
   gem_graf_accel_key := 0
   gem_mouse_init()
   gem_init_fonts()
+  gem_init_gadtools()
   vdi_init_rgb()
   vdi_init_line_pats()
   vdi_handle := -1

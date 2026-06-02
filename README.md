@@ -33,7 +33,7 @@ Trap dispatchers and function stubs for all five Atari ST trap interfaces:
 | BIOS   | 12 — console I/O, tick calibration, drive map, keyboard shift |
 | XBIOS  | 18 — screen, mouse, timer, palette, floppy, RS232, random, cookie jar |
 | AES    | 60+ — window, menu, form, event, graphics, file selector, object |
-| VDI    | v_opnvwk/v_clsvwk stub — remaining drawing ops return 1 |
+| VDI    | 30+ — workstation, drawing, attribute, inquiry functions via SELECT dispatch |
 
 Notable implementations:
 - **Pexec ($2D) LoadSeg mode 0** parses Atari PRG headers and loads text/data/bss
@@ -47,11 +47,26 @@ Notable implementations:
   `SetPointer`/`ClearPointer` and `TextFont` struct setup are wrapped as
   single-line `IS NATIVE` PortablE declarations.
 
-Hardware-level BIOS calls (Rwabs, Flop*, DMA, MFP) and most VDI drawing return
-`E_ERROR` or 0 — these need Amiga-side emulation of ST hardware.
+VDI implements colour palette (16 standard Atari colours via `vdi_rgb`),
+line patterns, and tracks workstation state (handle, resolution, drawing
+attributes, clip rectangle, cursor). Drawing operations read coordinate
+pairs from the AES `ptrin` array and update `vdi_cur_x/y`.
 
-AES window/form/menu calls are wired to `intuition.library` and `gadtools.library`
-and ready for progressive implementation.
+Hardware-level BIOS calls (Rwabs, Flop*, DMA, MFP) return `E_ERROR` or 0 —
+these need Amiga-side emulation of ST hardware.
+
+VDI dispatch routes 30+ function numbers (opnvwk, clsvwk, pline, pmarker,
+fillarea, bar, arc, ellipse, pieslice, circle, gtext, justif, show_c,
+curup/down, curtext, rasterbox, rastercol, esc, exits, init, inquire
+attributes for line/marker/text/fill/colour, cell array, xbit_image, mouse
+form, and valuator/choice/string inquiry) to individual procedures via a
+SELECT block, returning stubs where unimplemented.
+
+Notable VDI state variables include `vdi_work_w/h`, `vdi_dev_w/h`,
+`vdi_n_planes`, `vdi_line_type/width/color`, `vdi_fill_type/index/color`,
+`vdi_marker_type/height/color`, `vdi_text_font/color/rotation`, `vdi_wr_mode`,
+and `vdi_clip_x/y/w/h`. All initialized on workstation open and returned
+via `intout[]` for GEM inquiry calls.
 
 The trap handler (inline ASM) is omitted due to PortablE limitations.
 
