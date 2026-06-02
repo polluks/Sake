@@ -41,6 +41,11 @@ Notable implementations:
 - **Font registration** maps the full Atari ST character set (256 glyphs, 8x16 and
   8x8) to native AmigaOS `TextFont` structures via `AddFont()`. Bitmap data is
   embedded as a static glyph table matching the ST ROM layout.
+- **Mouse pointers** — four predefined shapes (arrow, hourglass, I-beam, pointing
+  finger) initialized in pure PortablE with inline sprite data.
+- **Minimal NATIVE** — inline C is largely avoided; AmigaOS calls like
+  `SetPointer`/`ClearPointer` and `TextFont` struct setup are wrapped as
+  single-line `IS NATIVE` PortablE declarations.
 
 Hardware-level BIOS calls (Rwabs, Flop*, DMA, MFP) and most VDI drawing return
 `E_ERROR` or 0 — these need Amiga-side emulation of ST hardware.
