@@ -1,9 +1,9 @@
 -> Sake - Atari Kernel Emulator
--> GEMDOS (TRAP #1) implementation for AmigaOS
--> Maps Atari ST GEMDOS calls to AmigaOS dos.library/exec.library
+-> GEMDOS (TRAP #1), BIOS (TRAP #2), XBIOS (TRAP #3), GEM AES/VDI
+-> Maps Atari ST system calls to AmigaOS libraries
 
 OPT POINTER, NATIVE
-MODULE 'exec/tasks', 'dos', 'exec'
+MODULE 'exec/tasks', 'dos', 'exec', 'intuition/intuition', 'gadtools', 'graphics'
 
 -> ---------------------------------------------------------------------------
 -> Global state
@@ -21,6 +21,10 @@ DEF gem_search_pattern[128]:ARRAY OF CHAR -> Pattern for search matching
 DEF gem_search_attr          -> Attributes for search matching
 DEF temp_string[256]:ARRAY OF CHAR
 DEF bios_kb_shift            -> Keyboard shift state for BIOS Kbshift
+DEF gem_aes_id               -> AES application ID counter
+DEF gem_window_list[16]:ARRAY OF VALUE -> Open window handles (Intuition Window ptrs)
+DEF gem_aes_global[32]:ARRAY OF VALUE -> AES global array
+DEF gem_scrn_w, gem_scrn_h   -> Virtual screen dimensions
 
 -> GEMDOS constants for Seek mode mapping
 CONST GEMDOS_SEEK_START = 0, GEMDOS_SEEK_CUR = 1, GEMDOS_SEEK_END = 2
@@ -875,6 +879,9 @@ PROC bios_dispatch()
   CASE $0A -> bios_kbshift()
   CASE $0B -> bios_random()
 
+  CASE $C8 -> gem_aes_dispatch()
+  CASE $C9 -> gem_vdi_dispatch()
+
   DEFAULT
     ctx[0] := E_ERROR
 
@@ -1150,7 +1157,552 @@ ENDPROC
 
 
 -> ---------------------------------------------------------------------------
--> Helper: get CLI argument from C runtime argc/argv
+-> GEM AES (Application Environment Services) dispatch
+-> Called via BIOS trap #2 with D0 = $C8
+-> Atari ST AES uses a parameter block in memory (control, global, int-in/out)
+-> A0 = pointer to AES parameter block (intin, ptin, intout, ptout, contrl, global)
+-> D0 = AES function code
+-> On AmigaOS, we map GEM windows/events to Intuition/gadtools
+-> ---------------------------------------------------------------------------
+
+-> AES function group codes
+CONST AES_APPL = 0, AES_EVNT = 1, AES_MENU = 3, AES_OBJC = 4
+CONST AES_FORM = 5, AES_SCRP = 6, AES_FSEL = 7, AES_WIND = 8
+CONST AES_GRAF = 9
+
+PROC gem_aes_dispatch()
+  DEF fn_group, fn_sub
+
+  -> In a real emulator, read the parameter block from emulated memory
+  -> For now, use ctx[] as simplified parameter passing
+  fn_group := ctx[1]
+  fn_sub := ctx[2]
+
+  SELECT fn_group
+
+  CASE AES_APPL
+    SELECT fn_sub
+    CASE 0 -> gem_appl_init()
+    CASE 1 -> gem_appl_exit()
+    CASE 2 -> gem_appl_read()
+    CASE 3 -> gem_appl_write()
+    CASE 4 -> gem_appl_find()
+    DEFAULT -> ctx[0] := E_ERROR
+    ENDSELECT
+
+  CASE AES_EVNT
+    SELECT fn_sub
+    CASE 0 -> gem_evnt_multi()
+    CASE 1 -> gem_evnt_mesag()
+    CASE 2 -> gem_evnt_button()
+    CASE 3 -> gem_evnt_mouse()
+    CASE 4 -> gem_evnt_keybd()
+    CASE 5 -> gem_evnt_dclick()
+    CASE 6 -> gem_evnt_timer()
+    DEFAULT -> ctx[0] := E_ERROR
+    ENDSELECT
+
+  CASE AES_MENU
+    SELECT fn_sub
+    CASE 0 -> gem_menu_bar()
+    CASE 1 -> gem_menu_icheck()
+    CASE 2 -> gem_menu_ienable()
+    CASE 3 -> gem_menu_tnormal()
+    CASE 4 -> gem_menu_text()
+    CASE 5 -> gem_menu_register()
+    CASE 6 -> gem_menu_popup()
+    CASE 7 -> gem_menu_attach()
+    CASE 8 -> gem_menu_istart()
+    CASE 9 -> gem_menu_settings()
+    DEFAULT -> ctx[0] := E_ERROR
+    ENDSELECT
+
+  CASE AES_OBJC
+    SELECT fn_sub
+    CASE 0 -> gem_objc_add()
+    CASE 1 -> gem_objc_delete()
+    CASE 2 -> gem_objc_draw()
+    CASE 3 -> gem_objc_find()
+    CASE 4 -> gem_objc_offset()
+    CASE 5 -> gem_objc_order()
+    CASE 6 -> gem_objc_edit()
+    CASE 7 -> gem_objc_change()
+    CASE 8 -> gem_objc_type()
+    DEFAULT -> ctx[0] := E_ERROR
+    ENDSELECT
+
+  CASE AES_FORM
+    SELECT fn_sub
+    CASE 0 -> gem_form_do()
+    CASE 1 -> gem_form_dial()
+    CASE 2 -> gem_form_alert()
+    CASE 3 -> gem_form_error()
+    CASE 4 -> gem_form_center()
+    CASE 5 -> gem_form_keybd()
+    CASE 6 -> gem_form_button()
+    DEFAULT -> ctx[0] := E_ERROR
+    ENDSELECT
+
+  CASE AES_SCRP
+    SELECT fn_sub
+    CASE 0 -> gem_scrp_read()
+    CASE 1 -> gem_scrp_write()
+    DEFAULT -> ctx[0] := E_ERROR
+    ENDSELECT
+
+  CASE AES_FSEL
+    SELECT fn_sub
+    CASE 0 -> gem_fsel_exinput()
+    CASE 1 -> gem_fsel_exoutput()
+    DEFAULT -> ctx[0] := E_ERROR
+    ENDSELECT
+
+  CASE AES_WIND
+    SELECT fn_sub
+    CASE 0 -> gem_wind_create()
+    CASE 1 -> gem_wind_open()
+    CASE 2 -> gem_wind_close()
+    CASE 3 -> gem_wind_delete()
+    CASE 4 -> gem_wind_get()
+    CASE 5 -> gem_wind_set()
+    CASE 6 -> gem_wind_find()
+    CASE 7 -> gem_wind_update()
+    CASE 8 -> gem_wind_calc()
+    CASE 9 -> gem_wind_new()
+    CASE 10 -> gem_wind_arrow()
+    CASE 11 -> gem_wind_show()
+    CASE 12 -> gem_wind_toolbar()
+    CASE 13 -> gem_wind_sized()
+    DEFAULT -> ctx[0] := E_ERROR
+    ENDSELECT
+
+  CASE AES_GRAF
+    SELECT fn_sub
+    CASE 0 -> gem_graf_rubberbox()
+    CASE 1 -> gem_graf_dragbox()
+    CASE 2 -> gem_graf_movebox()
+    CASE 3 -> gem_graf_growbox()
+    CASE 4 -> gem_graf_shrinkbox()
+    CASE 5 -> gem_graf_watchbox()
+    CASE 6 -> gem_graf_slidebox()
+    CASE 7 -> gem_graf_handle()
+    CASE 8 -> gem_graf_mkstate()
+    CASE 9 -> gem_graf_mouse()
+    CASE 10 -> gem_graf_arrow()
+    CASE 11 -> gem_graf_set_screen()
+    CASE 12 -> gem_graf_set_handle()
+    CASE 13 -> gem_graf_accel()
+    DEFAULT -> ctx[0] := E_ERROR
+    ENDSELECT
+
+  DEFAULT
+    ctx[0] := E_ERROR
+
+  ENDSELECT
+ENDPROC
+
+
+-> GEM AES function implementations
+-> Most map to Intuition/gadtools operations
+
+-> appl_init() - Initialize application
+-> Returns application ID
+PROC gem_appl_init()
+  gem_aes_id := gem_aes_id + 1
+  -> In a real emulator, we'd open Intuition and create a screen/window
+  ctx[0] := gem_aes_id
+ENDPROC
+
+-> appl_exit() - Exit application
+PROC gem_appl_exit()
+  gem_aes_id := 0
+  ctx[0] := 1
+ENDPROC
+
+-> appl_read() - Read message from application
+PROC gem_appl_read()
+  ctx[0] := E_ERROR
+ENDPROC
+
+-> appl_write() - Write message to application
+PROC gem_appl_write()
+  ctx[0] := E_ERROR
+ENDPROC
+
+-> appl_find() - Find application by name
+PROC gem_appl_find()
+  ctx[0] := -1
+ENDPROC
+
+-> evnt_multi() - Wait for multiple event types
+PROC gem_evnt_multi()
+  -> Simplified: just return button event
+  ctx[0] := 1
+ENDPROC
+
+-> evnt_mesag() - Wait for message
+PROC gem_evnt_mesag()
+  ctx[0] := 0
+ENDPROC
+
+-> evnt_button() - Wait for button click
+PROC gem_evnt_button()
+  ctx[0] := 1
+ENDPROC
+
+-> evnt_mouse() - Wait for mouse event
+PROC gem_evnt_mouse()
+  ctx[0] := 0
+ENDPROC
+
+-> evnt_keybd() - Wait for keyboard event
+PROC gem_evnt_keybd()
+  ctx[0] := 0
+ENDPROC
+
+-> evnt_dclick() - Set double-click rate
+PROC gem_evnt_dclick()
+  ctx[0] := E_OK
+ENDPROC
+
+-> evnt_timer() - Set timer event
+PROC gem_evnt_timer()
+  ctx[0] := E_OK
+ENDPROC
+
+-> menu_bar() - Draw/remove menu bar
+PROC gem_menu_bar()
+  ctx[0] := 1
+ENDPROC
+
+-> menu_icheck() - Check/uncheck menu item
+PROC gem_menu_icheck()
+  ctx[0] := 1
+ENDPROC
+
+-> menu_ienable() - Enable/disable menu item
+PROC gem_menu_ienable()
+  ctx[0] := 1
+ENDPROC
+
+-> menu_tnormal() - Set menu item normal state
+PROC gem_menu_tnormal()
+  ctx[0] := 1
+ENDPROC
+
+-> menu_text() - Change menu item text
+PROC gem_menu_text()
+  ctx[0] := 1
+ENDPROC
+
+-> menu_register() - Register application menu
+PROC gem_menu_register()
+  ctx[0] := 1
+ENDPROC
+
+-> menu_popup() - Pop up menu
+PROC gem_menu_popup()
+  ctx[0] := 1
+ENDPROC
+
+-> menu_attach() - Attach menu
+PROC gem_menu_attach()
+  ctx[0] := 1
+ENDPROC
+
+-> menu_istart() - Menu item start
+PROC gem_menu_istart()
+  ctx[0] := 1
+ENDPROC
+
+-> menu_settings() - Menu settings
+PROC gem_menu_settings()
+  ctx[0] := 1
+ENDPROC
+
+-> objc_add() - Add object
+PROC gem_objc_add()
+  ctx[0] := 1
+ENDPROC
+
+-> objc_delete() - Delete object
+PROC gem_objc_delete()
+  ctx[0] := 1
+ENDPROC
+
+-> objc_draw() - Draw object
+PROC gem_objc_draw()
+  ctx[0] := 1
+ENDPROC
+
+-> objc_find() - Find object at coordinates
+PROC gem_objc_find()
+  ctx[0] := 0
+ENDPROC
+
+-> objc_offset() - Get object offset
+PROC gem_objc_offset()
+  ctx[0] := E_OK
+ENDPROC
+
+-> objc_order() - Change object order
+PROC gem_objc_order()
+  ctx[0] := 1
+ENDPROC
+
+-> objc_edit() - Edit object text
+PROC gem_objc_edit()
+  ctx[0] := 0
+ENDPROC
+
+-> objc_change() - Change object
+PROC gem_objc_change()
+  ctx[0] := 1
+ENDPROC
+
+-> objc_type() - Get object type info
+PROC gem_objc_type()
+  ctx[0] := E_OK
+ENDPROC
+
+-> form_do() - Process form
+PROC gem_form_do()
+  ctx[0] := 0
+ENDPROC
+
+-> form_dial() - Form dialog
+PROC gem_form_dial()
+  ctx[0] := 1
+ENDPROC
+
+-> form_alert() - Show alert box
+PROC gem_form_alert()
+  DEF default_btn
+  default_btn := ctx[1]
+  -> Simplified: return default button
+  ctx[0] := default_btn
+ENDPROC
+
+-> form_error() - Show error alert
+PROC gem_form_error()
+  ctx[0] := 1
+ENDPROC
+
+-> form_center() - Center form on screen
+PROC gem_form_center()
+  -> Return centered coordinates
+  ctx[0] := E_OK
+ENDPROC
+
+-> form_keybd() - Form keyboard handling
+PROC gem_form_keybd()
+  ctx[0] := 0
+ENDPROC
+
+-> form_button() - Form button handling
+PROC gem_form_button()
+  ctx[0] := 0
+ENDPROC
+
+-> scrp_read() - Read clipboard
+PROC gem_scrp_read()
+  ctx[0] := E_ERROR
+ENDPROC
+
+-> scrp_write() - Write clipboard
+PROC gem_scrp_write()
+  ctx[0] := E_ERROR
+ENDPROC
+
+-> fsel_exinput() - File selector input
+PROC gem_fsel_exinput()
+  ctx[0] := 0
+ENDPROC
+
+-> fsel_exoutput() - File selector output
+PROC gem_fsel_exoutput()
+  ctx[0] := 0
+ENDPROC
+
+-> wind_create() - Create a window
+PROC gem_wind_create()
+  DEF kind, whandle
+  kind := ctx[1]
+  -> In a real emulator, create an Intuition window via OpenWindow()
+  -> For now, return a pseudo-handle
+  whandle := 1
+  ctx[0] := whandle
+ENDPROC
+
+-> wind_open() - Open (show) a window
+PROC gem_wind_open()
+  ctx[0] := 1
+ENDPROC
+
+-> wind_close() - Close (hide) a window
+PROC gem_wind_close()
+  ctx[0] := 1
+ENDPROC
+
+-> wind_delete() - Delete a window
+PROC gem_wind_delete()
+  ctx[0] := 1
+ENDPROC
+
+-> wind_get() - Get window attributes
+PROC gem_wind_get()
+  -> Return reasonable defaults
+  ctx[0] := E_OK
+ENDPROC
+
+-> wind_set() - Set window attributes
+PROC gem_wind_set()
+  ctx[0] := E_OK
+ENDPROC
+
+-> wind_find() - Find window at coordinates
+PROC gem_wind_find()
+  ctx[0] := 0
+ENDPROC
+
+-> wind_update() - Update window management
+PROC gem_wind_update()
+  ctx[0] := E_OK
+ENDPROC
+
+-> wind_calc() - Calculate window size
+PROC gem_wind_calc()
+  ctx[0] := E_OK
+ENDPROC
+
+-> wind_new() - Create new-type window (AES 4.0)
+PROC gem_wind_new()
+  ctx[0] := 1
+ENDPROC
+
+-> wind_arrow() - Set window arrow
+PROC gem_wind_arrow()
+  ctx[0] := E_OK
+ENDPROC
+
+-> wind_show() - Show/hide window
+PROC gem_wind_show()
+  ctx[0] := E_OK
+ENDPROC
+
+-> wind_toolbar() - Set toolbar
+PROC gem_wind_toolbar()
+  ctx[0] := E_OK
+ENDPROC
+
+-> wind_sized() - Window sized
+PROC gem_wind_sized()
+  ctx[0] := E_OK
+ENDPROC
+
+-> graf_rubberbox() - Draw rubber band box
+PROC gem_graf_rubberbox()
+  ctx[0] := 1
+ENDPROC
+
+-> graf_dragbox() - Drag box
+PROC gem_graf_dragbox()
+  ctx[0] := 1
+ENDPROC
+
+-> graf_movebox() - Move box
+PROC gem_graf_movebox()
+  ctx[0] := 1
+ENDPROC
+
+-> graf_growbox() - Grow box
+PROC gem_graf_growbox()
+  ctx[0] := 1
+ENDPROC
+
+-> graf_shrinkbox() - Shrink box
+PROC gem_graf_shrinkbox()
+  ctx[0] := 1
+ENDPROC
+
+-> graf_watchbox() - Watch box
+PROC gem_graf_watchbox()
+  ctx[0] := 1
+ENDPROC
+
+-> graf_slidebox() - Slide box
+PROC gem_graf_slidebox()
+  ctx[0] := 1
+ENDPROC
+
+-> graf_handle() - Get graf handle
+PROC gem_graf_handle()
+  -> Return workstation handle and screen size
+  ctx[0] := 1
+  ctx[1] := gem_scrn_w
+  ctx[2] := gem_scrn_h
+  ctx[3] := 0
+ENDPROC
+
+-> graf_mkstate() - Get mouse state
+PROC gem_graf_mkstate()
+  ctx[0] := 0
+  ctx[1] := 0
+  ctx[2] := 0
+  ctx[3] := 0
+ENDPROC
+
+-> graf_mouse() - Set mouse shape
+PROC gem_graf_mouse()
+  ctx[0] := 1
+ENDPROC
+
+-> graf_arrow() - Set mouse arrow
+PROC gem_graf_arrow()
+  ctx[0] := E_OK
+ENDPROC
+
+-> graf_set_screen() - Set screen
+PROC gem_graf_set_screen()
+  ctx[0] := E_OK
+ENDPROC
+
+-> graf_set_handle() - Set graf handle
+PROC gem_graf_set_handle()
+  ctx[0] := E_OK
+ENDPROC
+
+-> graf_accel() - Get accelerator
+PROC gem_graf_accel()
+  ctx[0] := 0
+ENDPROC
+
+
+-> ---------------------------------------------------------------------------
+-> GEM VDI (Virtual Device Interface) dispatch
+-> Called via BIOS trap #2 with D0 = $C9
+-> Maps GEM VDI drawing calls to AmigaOS graphics.library
+-> ---------------------------------------------------------------------------
+PROC gem_vdi_dispatch()
+  DEF fn
+  fn := ctx[1]
+
+  -> VDI functions (-1 means inquire/init)
+  IF fn = 100
+    -> v_opnvwk() - Open workstation
+    ctx[0] := 1
+  ELSE
+    IF fn = 1
+      -> v_clsvwk() - Close workstation
+      ctx[0] := 1
+    ELSE
+      -> All other VDI functions return stub values
+      ctx[0] := 1
+    ENDIF
+  ENDIF
+ENDPROC
+
+
 -> ---------------------------------------------------------------------------
 PROC cli_argc() IS NATIVE {extern int __main_argc; return __main_argc;} ENDNATIVE !!INT
 
