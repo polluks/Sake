@@ -22,6 +22,11 @@ DEF gem_search_attr          -> Attributes for search matching
 DEF temp_string[256]:ARRAY OF CHAR
 DEF bios_kb_shift            -> Keyboard shift state for BIOS Kbshift
 DEF gem_aes_id               -> AES application ID counter
+
+-> Memory allocation tracking for Mfree (pointer -> size table)
+DEF gem_alloc_ptr[64]:ARRAY OF VALUE
+DEF gem_alloc_size[64]:ARRAY OF VALUE
+DEF gem_alloc_count
 DEF gem_window_list[16]:ARRAY OF VALUE -> Open window handles (Intuition Window ptrs)
 DEF gem_aes_global[32]:ARRAY OF VALUE -> AES global array
 DEF gem_scrn_w, gem_scrn_h   -> Virtual screen dimensions
@@ -48,7 +53,7 @@ PROC gemdos_fopen_mode(gem_mode)
       result := 1006
     ELSE
       IF gem_mode = 2
-        result := 1006
+        result := 1005
       ELSE
         result := 1005
       ENDIF
@@ -238,6 +243,7 @@ PROC gemdos_cconrs()
   IF NOT done
     buf[1] := 0
   ENDIF
+  buf[0] := pos
   ctx[0] := 0
 ENDPROC
 
@@ -358,7 +364,7 @@ PROC gemdos_fread()
     ELSE
       result := Read(asBPTR(gem_handles[handle]), buf, count)
     ENDIF
-    IF result = 0 AND count > 0
+    IF result < 0
       ctx[0] := E_ERROR
     ELSE
       ctx[0] := result
@@ -390,7 +396,7 @@ PROC gemdos_fwrite()
         result := Write(asBPTR(gem_handles[handle]), buf, count)
       ENDIF
     ENDIF
-    IF result = 0 AND count > 0
+    IF result < 0
       ctx[0] := E_ERROR
     ELSE
       ctx[0] := result
@@ -477,6 +483,7 @@ ENDPROC
 PROC gemdos_fsfirst()
   DEF pattern:PTR TO CHAR, attr, i
   DEF lock_name[256]:ARRAY OF CHAR
+  DEF fname[256]:ARRAY OF CHAR
   pattern := asPTR(ctx[8])
   attr := ctx[1]
 
@@ -496,15 +503,27 @@ PROC gemdos_fsfirst()
   gem_search_lock := Lock(lock_name, -2)
 
   IF gem_search_lock
-    IF Examine(asBPTR(gem_search_lock), fib)
-      IF gem_dta <> 0
-        FillDTA(asPTR(gem_dta), fib)
+    -> Walk directory entries until one matches the pattern
+    gem_search_first := TRUE
+    WHILE ExNext(asBPTR(gem_search_lock), fib)
+      -> Extract filename from FileInfoBlock
+      i := 0
+      WHILE fib.filename[i] <> 0 AND i < 255
+        fname[i] := fib.filename[i]
+        i := i + 1
+      ENDWHILE
+      fname[i] := 0
+      -> Check against pattern
+      IF FileMatch(fname, gem_search_pattern)
+        IF gem_dta <> 0
+          FillDTA(asPTR(gem_dta), fib)
+        ENDIF
+        ctx[0] := E_OK
+        ENDPROC
       ENDIF
-      gem_search_first := TRUE
-      ctx[0] := E_OK
-    ELSE
-      ctx[0] := E_ERROR
-    ENDIF
+    ENDWHILE
+    -> No matching file found
+    ctx[0] := E_ERROR
   ELSE
     ctx[0] := E_ERROR
   ENDIF
@@ -512,15 +531,27 @@ ENDPROC
 
 
 PROC gemdos_fsnext()
+  DEF fname[256]:ARRAY OF CHAR, i
   IF gem_search_lock
-    IF ExNext(asBPTR(gem_search_lock), fib)
-      IF gem_dta <> 0
-        FillDTA(asPTR(gem_dta), fib)
+    WHILE ExNext(asBPTR(gem_search_lock), fib)
+      -> Extract filename from FileInfoBlock
+      i := 0
+      WHILE fib.filename[i] <> 0 AND i < 255
+        fname[i] := fib.filename[i]
+        i := i + 1
+      ENDWHILE
+      fname[i] := 0
+      -> Check against pattern
+      IF FileMatch(fname, gem_search_pattern)
+        IF gem_dta <> 0
+          FillDTA(asPTR(gem_dta), fib)
+        ENDIF
+        ctx[0] := E_OK
+        ENDPROC
       ENDIF
-      ctx[0] := E_OK
-    ELSE
-      ctx[0] := E_ERROR
-    ENDIF
+    ENDWHILE
+    -> No more matching files
+    ctx[0] := E_ERROR
   ELSE
     ctx[0] := E_ERROR
   ENDIF
@@ -532,14 +563,15 @@ ENDPROC
 -> Returns TRUE if name matches pattern
 -> ---------------------------------------------------------------------------
 PROC FileMatch(name:PTR TO CHAR, pattern:PTR TO CHAR)
-  DEF i, j, result
+  DEF i, j, result, star_pos
   i := 0
   j := 0
   result := TRUE
+  star_pos := -1
   WHILE pattern[j] <> 0 AND result
     IF pattern[j] = '*'
       result := TRUE
-      j := 999
+      star_pos := j
     ELSE
       IF pattern[j] = '?'
         IF name[i] = 0 THEN result := FALSE
@@ -549,9 +581,9 @@ PROC FileMatch(name:PTR TO CHAR, pattern:PTR TO CHAR)
         i := i + 1
       ENDIF
     ENDIF
-    j := j + 1
+    IF result THEN j := j + 1
   ENDWHILE
-  IF name[i] <> 0 AND pattern[j-1] <> '*' THEN result := FALSE
+  IF name[i] <> 0 AND star_pos < 0 THEN result := FALSE
 ENDPROC result
 
 
@@ -685,6 +717,12 @@ PROC gemdos_malloc()
   IF ptr = 0
     ctx[0] := 0
   ELSE
+    -> Track allocation size for Mfree
+    IF gem_alloc_count < 64
+      gem_alloc_ptr[gem_alloc_count] := asLONG(ptr)
+      gem_alloc_size[gem_alloc_count] := size
+      gem_alloc_count := gem_alloc_count + 1
+    ENDIF
     ctx[0] := asLONG(ptr)
   ENDIF
 ENDPROC
@@ -695,12 +733,23 @@ ENDPROC
 -> D1 = pointer to memory block
 -> ---------------------------------------------------------------------------
 PROC gemdos_mfree()
-  DEF ptr
+  DEF ptr, i, found_size
   ptr := asPTR(ctx[1])
-  -> Note: AmigaOS FreeMem needs the size, which we don't know
-  -> In a real implementation, we'd track allocated block sizes
-  -> For now, free with a reasonable size or just stub
-  FreeMem(asAPTR(ptr), 0)    -> This won't work properly without size tracking
+  -> Look up allocation size from tracking table
+  found_size := 0
+  FOR i := 0 TO gem_alloc_count - 1
+    IF gem_alloc_ptr[i] = asLONG(ptr)
+      found_size := gem_alloc_size[i]
+      -> Remove from tracking table (swap with last)
+      gem_alloc_ptr[i] := gem_alloc_ptr[gem_alloc_count - 1]
+      gem_alloc_size[i] := gem_alloc_size[gem_alloc_count - 1]
+      gem_alloc_count := gem_alloc_count - 1
+      i := gem_alloc_count
+    ENDIF
+  ENDFOR
+  IF found_size > 0
+    FreeMem(asAPTR(ptr), found_size)
+  ENDIF
   ctx[0] := E_OK
 ENDPROC
 
@@ -711,7 +760,7 @@ ENDPROC
 -> D0 = pointer or 0
 -> ---------------------------------------------------------------------------
 PROC gemdos_mxalloc()
-  DEF size, flags, memflags
+  DEF size, flags, memflags, ptr
   size := ctx[1]
   flags := ctx[2]
   memflags := 65538  -> MEMF_CLEAR | MEMF_PUBLIC
@@ -719,7 +768,16 @@ PROC gemdos_mxalloc()
     -> CHIP memory requested, use MEMF_CHIP
     memflags := 65538  -> Can't do chip on Amiga, use same
   ENDIF
-  ctx[0] := AllocMem(size, memflags)
+  ptr := AllocMem(size, memflags)
+  IF ptr <> 0
+    -> Track allocation size for Mfree
+    IF gem_alloc_count < 64
+      gem_alloc_ptr[gem_alloc_count] := asLONG(ptr)
+      gem_alloc_size[gem_alloc_count] := size
+      gem_alloc_count := gem_alloc_count + 1
+    ENDIF
+  ENDIF
+  ctx[0] := asLONG(ptr)
 ENDPROC
 
 
@@ -814,11 +872,46 @@ ENDPROC
 -> D0 = date in GEMDOS format (bit 0-4: day, bit 5-8: month, bit 9-15: year-1980)
 -> ---------------------------------------------------------------------------
 PROC gemdos_tgetdate()
-  DEF now:datestamp
+  DEF now:datestamp, d, m, y, days_left
+  DEF month_days[12]:ARRAY OF VALUE
   DateStamp(now)
-  -> GEMDOS date: bits 0-4=day, 5-8=month, 9-15=year-1980
-  -> Simple approximation from days since 1978
-  ctx[0] := ((now.days / 365) * 512) + (1 * 32) + 1
+  -> Convert AmigaOS days-since-1978 to year/month/day
+  d := now.days
+  -> Days per month (non-leap year)
+  month_days[0] := 31; month_days[1] := 28; month_days[2] := 31
+  month_days[3] := 30; month_days[4] := 31; month_days[5] := 30
+  month_days[6] := 31; month_days[7] := 31; month_days[8] := 30
+  month_days[9] := 31; month_days[10] := 30; month_days[11] := 31
+  -> Epoch: Jan 1, 1978 = day 0. GEMDOS epoch is Jan 1, 1980.
+  -> Days from 1978-01-01 to 1980-01-01 = 365 + 366 = 731
+  d := d - 731
+  IF d < 0 THEN d := 0
+  y := 1980
+  -> Subtract full years
+  WHILE d >= 365
+    -> Check for leap year (year divisible by 4)
+    IF (y AND 3) = 0
+      IF d >= 366
+        d := d - 366
+        y := y + 1
+      ELSE
+        d := d - 365
+        y := y + 1
+      ENDIF
+    ELSE
+      d := d - 365
+      y := y + 1
+    ENDIF
+  ENDWHILE
+  -> d is now day-of-year (0-based)
+  m := 0
+  days_left := d
+  WHILE m < 11 AND days_left >= month_days[m]
+    days_left := days_left - month_days[m]
+    m := m + 1
+  ENDWHILE
+  -> Encode: bits 0-4=day, 5-8=month, 9-15=year-1980
+  ctx[0] := ((y - 1980) * 512) + ((m + 1) * 32) + (days_left + 1)
 ENDPROC
 
 
@@ -1172,7 +1265,7 @@ ENDPROC
 -> Maps Atari GEM AES calls to AmigaOS Intuition
 -> ---------------------------------------------------------------------------
 
-CONST AES_APPL = 0, AES_EVNT = 1, AES_MENU = 3, AES_OBJC = 4
+CONST AES_APPL = 0, AES_EVNT = 1, AES_RSRC = 2, AES_MENU = 3, AES_OBJC = 4
 CONST AES_FORM = 5, AES_SCRP = 6, AES_FSEL = 7, AES_WIND = 8
 CONST AES_GRAF = 9
 
@@ -1251,6 +1344,12 @@ DEF gem_form_active -> handle of active form dialog (-1 = none)
 DEF gem_scrap_buffer[1024]:ARRAY OF CHAR
 DEF gem_scrap_len
 
+-> Resource (RSC) state
+DEF gem_rsc_data                    -> pointer to loaded RSC data (0=none)
+DEF gem_rsc_size                    -> size of loaded RSC data
+DEF gem_rsc_tree_count              -> number of trees in loaded RSC
+DEF gem_rsc_tree_table              -> pointer to array of tree root pointers
+
 -> Graf (graphics) state
 DEF gem_mouse_x, gem_mouse_y           -> Current mouse position
 DEF gem_mouse_buttons                   -> Button state (bit0=left, bit1=right)
@@ -1307,6 +1406,9 @@ PROC gem_MoveWindow(win:PTR TO window, x:VALUE, y:VALUE) IS NATIVE { MoveWindow(
 PROC gem_SizeWindow(win:PTR TO window, w:VALUE, h:VALUE) IS NATIVE { SizeWindow((struct Window *)} win {, (long)} w {, (long)} h {); } ENDNATIVE
 
 PROC gem_OpenWindow(x:VALUE, y:VALUE, w:VALUE, h:VALUE, title:PTR TO CHAR, kind:VALUE) IS NATIVE { struct Window *win; struct NewWindow nw; long flags = WFLG_SMART_REFRESH | WFLG_ACTIVATE | WFLG_GIMMEZEROZERO; long idcmp = IDCMP_CLOSEWINDOW | IDCMP_REFRESHWINDOW | IDCMP_SIZEVERIFY | IDCMP_NEWSIZE | IDCMP_MOUSEBUTTONS | IDCMP_MOUSEMOVE; if (kind & 2) flags |= WFLG_CLOSEGADGET; if (kind & 4) flags |= WFLG_DEPTHGADGET; if (kind & 8) flags |= WFLG_DRAGBAR; if (kind & 16) flags |= WFLG_SIZEGADGET; nw.LeftEdge = (long)} x {; nw.TopEdge = (long)} y {; nw.Width = (long)} w {; nw.Height = (long)} h {; nw.DetailPen = 0; nw.BlockPen = 1; nw.Title = (STRPTR)} title {; nw.Flags = flags; nw.IDCMPFlags = idcmp; nw.Type = WBENCHSCREEN; nw.FirstGadget = NULL; nw.CheckMark = NULL; nw.Screen = NULL; nw.BitMap = NULL; nw.MinWidth = 50; nw.MinHeight = 30; nw.MaxWidth = 2048; nw.MaxHeight = 2048; win = OpenWindow(&nw); return (unsigned long)win; } ENDNATIVE !!VALUE
+
+-> Draw a filled rectangle on the first open window's RastPort
+PROC gem_DrawRect(x:VALUE, y:VALUE, w:VALUE, h:VALUE, filled:VALUE) IS NATIVE { struct Window *win; int i; for (i = 0; i < 16; i++) { win = (struct Window *)gem_window_list[i]; if (win) break; } if (!win) return; if (filled) { SetAPen(win->RPort, 0); RectFill(win->RPort, (long)} x {, (long)} y {, (long)(} x { + } w { - 1), (long)(} y { + } h { - 1)); } else { SetAPen(win->RPort, 1); Draw(win->RPort, (long)} x {, (long)} y {); Draw(win->RPort, (long)(} x { + } w {), (long)} y {); Draw(win->RPort, (long)(} x { + } w {), (long)(} y { + } h {)); Draw(win->RPort, (long)} x {, (long)(} y { + } h {)); Draw(win->RPort, (long)} x {, (long)} y {); } } ENDNATIVE
 
 -> ---------------------------------------------------------------------------
 -> Open gadtools.library with fallback to gadtools13.library
@@ -1426,6 +1528,14 @@ PROC gem_aes_dispatch()
     CASE 4 -> gem_evnt_keybd()
     CASE 5 -> gem_evnt_dclick()
     CASE 6 -> gem_evnt_timer()
+    DEFAULT -> ctx[0] := E_ERROR
+    ENDSELECT
+
+  CASE AES_RSRC
+    SELECT fn_sub
+    CASE 0 -> gem_rsrc_load()
+    CASE 1 -> gem_rsrc_free()
+    CASE 2 -> gem_rsrc_gaddr()
     DEFAULT -> ctx[0] := E_ERROR
     ENDSELECT
 
@@ -1570,10 +1680,15 @@ PROC gem_appl_read()
 ENDPROC
 
 PROC gem_appl_write()
-  DEF dest_id, msg_len, msg_data
+  DEF dest_id, msg_len, msg_data, next_tail
   dest_id := ctx[1]
   msg_len := ctx[2]
-  IF gem_msg_tail <> gem_msg_head
+  -> Check if queue has space (not full)
+  next_tail := gem_msg_tail + 1
+  IF next_tail >= MAX_MESSAGES
+    next_tail := 0
+  ENDIF
+  IF next_tail <> gem_msg_head
     gem_msg_push((dest_id * 256) + msg_len, gem_aes_id, msg_len)
     ctx[0] := 1
   ELSE
@@ -1687,6 +1802,156 @@ PROC gem_evnt_timer()
   ctx[0] := 0
 ENDPROC
 
+
+-> ============================
+-> RSRC - Resource services
+-> ============================
+
+-> rsrc_load() - Load a .RSC resource file into memory
+-> filename in addr_in[0] (ctx[8])
+PROC gem_rsrc_load()
+  DEF fn:PTR TO CHAR
+  fn := asPTR(ctx[8])
+  gem_rsc_data := 0
+  gem_rsc_size := 0
+  gem_rsc_tree_count := 0
+  gem_rsc_tree_table := 0
+  NATIVE {
+    BPTR fh;
+    unsigned char *data;
+    int size;
+    unsigned short *hdr;
+    int num_objects, num_trees, num_ti, num_ib, num_bb, num_frstr, num_frimg;
+    int obj_off, ti_off, ib_off, bb_off, frstr_off, frimg_off, trix_off, trix_ntree;
+    int obj_size, ti_size, i;
+    unsigned long *tree_ptrs;
+    unsigned short *trix;
+    fh = Open((STRPTR)fn, MODE_OLDFILE);
+    if (!fh) { gem_rsc_data = 0; return; }
+    size = Seek(fh, 0, OFFSET_END);
+    Seek(fh, 0, OFFSET_BEGINNING);
+    data = AllocMem(size, MEMF_CLEAR);
+    if (!data) { Close(fh); gem_rsc_data = 0; return; }
+    Read(fh, data, size);
+    Close(fh);
+    hdr = (unsigned short *)data;
+    num_objects = hdr[1]; num_trees = hdr[2]; num_ti = hdr[4];
+    num_ib = hdr[6]; num_bb = hdr[7]; num_frstr = hdr[8]; num_frimg = hdr[9];
+    obj_off = hdr[10]; ti_off = hdr[11]; ib_off = hdr[12];
+    bb_off = hdr[13]; frstr_off = hdr[14]; frimg_off = hdr[15];
+    trix_off = hdr[16]; trix_ntree = hdr[17];
+    if (trix_ntree > 0) num_trees = trix_ntree;
+    if (num_trees <= 0) { num_trees = num_objects > 0 ? 1 : 0; }
+    if (num_objects > 0 && ti_off > obj_off) obj_size = (ti_off - obj_off) / num_objects;
+    else obj_size = 24;
+    if (num_ti > 0 && ib_off > ti_off) ti_size = (ib_off - ti_off) / num_ti;
+    else ti_size = 0;
+    for (i = 0; i < num_objects; i++) {
+      unsigned char *obj = data + obj_off + i * obj_size;
+      unsigned short ot = *(unsigned short *)(obj + 6);
+      unsigned short spec = *(unsigned short *)(obj + 20);
+      if (spec > 0 && spec < size) {
+        if ((ot >= 8 && ot <= 13) || ot == 4 || ot == 5 || ot == 6)
+          *(unsigned long *)(obj + 20) = (unsigned long)(data + spec);
+      }
+    }
+    if (ti_size > 0) {
+      for (i = 0; i < num_ti; i++) {
+        unsigned char *ti = data + ti_off + i * ti_size;
+        unsigned short p1, p2, p3;
+        p1 = *(unsigned short *)(ti + 0);
+        p2 = *(unsigned short *)(ti + 2);
+        p3 = *(unsigned short *)(ti + 4);
+        if (p1 > 0 && p1 < size) *(unsigned long *)(ti + 0) = (unsigned long)(data + p1);
+        if (p2 > 0 && p2 < size) *(unsigned long *)(ti + 2) = (unsigned long)(data + p2);
+        if (p3 > 0 && p3 < size) *(unsigned long *)(ti + 4) = (unsigned long)(data + p3);
+      }
+    }
+    trix = data + trix_off;
+    tree_ptrs = AllocMem(num_trees * 4, MEMF_CLEAR);
+    if (tree_ptrs) {
+      for (i = 0; i < num_trees; i++) {
+        unsigned short root_off = (trix_off > 0 && (unsigned long)(trix + i) < (unsigned long)(data + size)) ? trix[i] : (obj_off + i * obj_size);
+        if (root_off > 0 && (unsigned long)(data + root_off) < (unsigned long)(data + size))
+          tree_ptrs[i] = (unsigned long)(data + root_off);
+        else
+          tree_ptrs[i] = 0;
+      }
+    }
+    gem_rsc_data = (unsigned long)data;
+    gem_rsc_size = size;
+    gem_rsc_tree_count = num_trees;
+    gem_rsc_tree_table = (unsigned long)tree_ptrs;
+  } ENDNATIVE
+  IF gem_rsc_data <> 0
+    ctx[0] := E_OK
+  ELSE
+    ctx[0] := E_ERROR
+  ENDIF
+ENDPROC
+
+-> rsrc_free() - Free loaded resource data
+PROC gem_rsrc_free()
+  NATIVE {
+    if (gem_rsc_data) FreeMem((void *)gem_rsc_data, gem_rsc_size);
+    if (gem_rsc_tree_table) FreeMem((void *)gem_rsc_tree_table, gem_rsc_tree_count * 4);
+  } ENDNATIVE
+  gem_rsc_data := 0
+  gem_rsc_size := 0
+  gem_rsc_tree_count := 0
+  gem_rsc_tree_table := 0
+  ctx[0] := E_OK
+ENDPROC
+
+-> rsrc_gaddr() - Get address of resource object
+-> type in int_in[0] (ctx[3]): 0=R_TREE, 1=R_OBJECT, 2=R_TEDINFO, 3=R_ICONBLK, 4=R_BITBLK, 5=R_FRSTR, 6=R_FRIMG, 7=R_USERBLK
+-> index in int_in[1] (ctx[4])
+-> address returned in addr_out[0]
+PROC gem_rsrc_gaddr()
+  DEF gtype, gidx, result, obj_ptr
+  gtype := ctx[3]
+  gidx := ctx[4]
+  result := 0
+  obj_ptr := 0
+  IF gem_rsc_data <> 0
+    IF gtype = 0
+      IF gidx >= 0 AND gidx < gem_rsc_tree_count AND gem_rsc_tree_table <> 0
+        NATIVE {
+          unsigned long *tptrs = (unsigned long *)gem_rsc_tree_table;
+          gem_rsrc_gaddr_result = (unsigned long)tptrs[gidx];
+        } ENDNATIVE
+        obj_ptr := gem_rsrc_gaddr_result
+        IF obj_ptr <> 0 THEN result := 1
+      ENDIF
+    ELSE
+      IF gtype = 1
+        -> R_OBJECT: index is global object index within the RSC
+        -> For now, calculate from tree table (tree 0 object index)
+        IF gidx >= 0 AND gem_rsc_tree_table <> 0
+          NATIVE {
+            unsigned long *tptrs = (unsigned long *)gem_rsc_tree_table;
+            gem_rsrc_gaddr_result = tptrs[0];
+          } ENDNATIVE
+          obj_ptr := gem_rsrc_gaddr_result
+          IF obj_ptr <> 0
+            NATIVE {
+              unsigned char *obj = (unsigned char *)obj_ptr;
+              unsigned short next = *(unsigned short *)(obj + 0);
+              if (next != 0) gem_rsrc_gaddr_result = (unsigned long)(obj + next);
+              else gem_rsrc_gaddr_result = 0;
+            } ENDNATIVE
+            obj_ptr := gem_rsrc_gaddr_result
+          ENDIF
+          result := 1
+        ENDIF
+      ENDIF
+    ENDIF
+  ENDIF
+  ctx[1] := obj_ptr
+  ctx[0] := result
+ENDPROC
+
+DEF gem_rsrc_gaddr_result
 
 -> ============================
 -> MENU - Menu services
@@ -1926,10 +2191,43 @@ ENDPROC
 -> ============================
 
 PROC gem_form_do()
-  DEF tree, startobj
+  DEF tree, startobj, obj_ptr, key
   tree := ctx[3]; startobj := ctx[4]
   gem_form_active := tree
-  -> Simulate: return the default button (startobj or root)
+  -> If no tree, return immediately
+  IF tree = 0
+    gem_form_active := -1
+    ctx[0] := startobj
+    RETURN
+  ENDIF
+  -> Draw the form
+  obj_ptr := tree
+  NATIVE {
+    unsigned char *obj = (unsigned char *)obj_ptr;
+    short x = 0, y = 0, w, h, ot;
+    ot = *(short *)(obj + 6);
+    if (ot >= 0 && ot <= 3) {
+      x = *(short *)(obj + 12);
+      y = *(short *)(obj + 14);
+      w = *(short *)(obj + 16);
+      h = *(short *)(obj + 18);
+    }
+  } ENDNATIVE
+  -> Wait for a key press or mouse click
+  -> For now, check console for Enter key
+  IF WaitForChar(Input(), 0)
+    -> Key available, consume it
+    key := 0
+    Read(Input(), key, 1)
+    -> If Enter, return default button
+    IF key = 10 OR key = 13
+      gem_form_active := -1
+      ctx[0] := startobj
+      RETURN
+    ENDIF
+  ENDIF
+  -> Return default button (startobj) so form exits immediately
+  -> For a proper implementation, we'd loop waiting for events
   gem_form_active := -1
   ctx[0] := startobj
 ENDPROC
@@ -1940,14 +2238,56 @@ PROC gem_form_dial()
   ix := ctx[4]; iy := ctx[5]; iw := ctx[6]; ih := ctx[7]
   x := ctx[8]; y := ctx[9]; w := ctx[10]; h := ctx[11]
   -> Animated dialog box transition (0=init, 1=start, 2=draw, 3=exit)
+  -> For now, just return OK (no real animation drawn to screen)
   ctx[0] := 1
 ENDPROC
 
+DEF gem_form_alert_title[128]:ARRAY OF CHAR
+DEF gem_form_alert_body[256]:ARRAY OF CHAR
+DEF gem_form_alert_gad[128]:ARRAY OF CHAR
+DEF gem_form_alert_result
+
 PROC gem_form_alert()
-  DEF default_btn
+  DEF default_btn, alert_str:PTR TO CHAR, i, bracket
   default_btn := ctx[3]
-  -> Show a simple alert; return default button
-  ctx[0] := default_btn
+  alert_str := asPTR(ctx[4])
+  -> Parse GEM alert format: "[default][message][button1|button2|button3]"
+  gem_form_alert_title[0] := 0
+  gem_form_alert_body[0] := 0
+  gem_form_alert_gad[0] := 0
+  NATIVE {
+    char *src = (char *)alert_str;
+    char *dst;
+    int section = 0, ch;
+    while ((ch = *src++) != 0) {
+      if (ch == '[') {
+        section++;
+        dst = section == 1 ? gem_form_alert_title : (section == 2 ? gem_form_alert_body : gem_form_alert_gad);
+        *dst = 0;
+      } else if (ch == ']') {
+        if (dst) *dst = 0;
+      } else if (section == 1) {
+        *dst++ = ch; *dst = 0;
+      } else if (section == 2) {
+        *dst++ = ch; *dst = 0;
+      } else if (section == 3) {
+        *dst++ = ch; *dst = 0;
+      }
+    }
+    if (!gem_form_alert_gad[0]) CopyMem(" OK ", gem_form_alert_gad, 4);
+  } ENDNATIVE
+  -> Show EasyRequest
+  NATIVE {
+    struct EasyStruct es;
+    char *win_title = gem_form_alert_title[0] ? gem_form_alert_title : "Alert";
+    es.es_StructSize = sizeof(struct EasyStruct);
+    es.es_Flags = 0;
+    es.es_Title = win_title;
+    es.es_TextFormat = (STRPTR)gem_form_alert_body;
+    es.es_GadgetFormat = (STRPTR)gem_form_alert_gad;
+    gem_form_alert_result = EasyRequest(NULL, &es, NULL);
+  } ENDNATIVE
+  ctx[0] := gem_form_alert_result + 1
 ENDPROC
 
 PROC gem_form_error()
@@ -1955,15 +2295,29 @@ PROC gem_form_error()
 ENDPROC
 
 PROC gem_form_center()
-  DEF tree
+  DEF tree, fw, fh
   tree := ctx[3]
-  -> Center form on screen
-  ctx[1] := (gem_scrn_w - 200) / 2
-  ctx[2] := (gem_scrn_h - 100) / 2
-  ctx[3] := 200
-  ctx[4] := 100
+  -> Try to read form dimensions from root object
+  fw := 200
+  fh := 100
+  IF tree <> 0
+    NATIVE {
+      unsigned char *obj = (unsigned char *)tree;
+      short w = *(short *)(obj + 16);
+      short h = *(short *)(obj + 18);
+      if (w > 0 && h > 0) { gem_form_center_w = w; gem_form_center_h = h; }
+    } ENDNATIVE
+    fw := gem_form_center_w
+    fh := gem_form_center_h
+  ENDIF
+  ctx[1] := (gem_scrn_w - fw) / 2
+  ctx[2] := (gem_scrn_h - fh) / 2
+  ctx[3] := fw
+  ctx[4] := fh
   ctx[0] := E_OK
 ENDPROC
+
+DEF gem_form_center_w, gem_form_center_h
 
 PROC gem_form_keybd()
   -> Return next object (0 = none)
@@ -2584,7 +2938,6 @@ CONST VDI_REPLACE = 1, VDI_TRANSPARENT = 2, VDI_XOR = 3, VDI_REVERSE = 4
 DEF vdi_rgb[48]:ARRAY OF CHAR -> 16 colours x 3 bytes (R,G,B)
 PROC vdi_init_rgb()
   DEF v
-  DEF vdi_rgb[48]:ARRAY OF CHAR -> 16 colours x 3 bytes (R,G,B)
   v := 0; vdi_rgb[0] := asCHAR(v); vdi_rgb[1] := asCHAR(v); vdi_rgb[2] := asCHAR(v)
   v := 0; vdi_rgb[3] := asCHAR(v); vdi_rgb[4] := asCHAR(v); v := 200; vdi_rgb[5] := asCHAR(v)
   v := 0; vdi_rgb[6] := asCHAR(v); v := 200; vdi_rgb[7] := asCHAR(v); v := 0; vdi_rgb[8] := asCHAR(v)
@@ -3533,6 +3886,7 @@ PROC main()
   gem_scrap_len := 0
   gem_msg_head := 0
   gem_msg_tail := 0
+  gem_alloc_count := 0
   gem_mouse_x := 320
   gem_mouse_y := 200
   gem_mouse_buttons := 0
