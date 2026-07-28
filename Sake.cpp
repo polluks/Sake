@@ -6598,9 +6598,9 @@ void vdi_justified() {
 
 // v_cellarray - Draw rectangular block of pixel cells
 // ptsin[0..1] = top-left; ptsin[2..3] = bottom-right
-// intin contains pixel colours
+// intin contains pixel colours (row by row)
 void vdi_cellarray() {
-  long w, h;
+  long w, h, rp_ptr;
   w = gem_ptrin[2] - gem_ptrin[0];
   if( w < 0) {
     w = -w;
@@ -6611,6 +6611,25 @@ void vdi_cellarray() {
     h = -h;
   }
   h = h + 1;
+  rp_ptr = gem_GetVDIRastPort();
+  if( rp_ptr != 0 && w > 0 && h > 0) {
+    struct RastPort *rp = (struct RastPort *)rp_ptr;
+    extern long vdi_pen_map[16];
+    extern long gem_ptrin[16];
+    extern long gem_intin[128];
+    long x1 = gem_ptrin[0], y1 = gem_ptrin[1];
+    int wi = (int)w, hi = (int)h;
+    int px, py;
+    for ( py = 0; py < hi; py = py + 1) {
+      for ( px = 0; px < wi; px = px + 1) {
+        int idx = py * wi + px;
+        int col = (idx < 128) ? (int)gem_intin[idx] : 0;
+        if( col < 0) { col = 0;} if( col > 15) { col = 15;}
+        SetAPen(rp, vdi_pen_map[col]);
+        WritePixel(rp, x1 + px, y1 + py);
+      }
+    }
+  }
   vdi_cur_x = gem_ptrin[2];
   vdi_cur_y = gem_ptrin[3];
   ctx[0] = 1;

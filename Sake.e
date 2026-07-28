@@ -4832,9 +4832,9 @@ ENDPROC
 
 -> v_cellarray - Draw rectangular block of pixel cells
 -> ptsin[0..1] = top-left; ptsin[2..3] = bottom-right
--> intin contains pixel colours
+-> intin contains pixel colours (row by row)
 PROC vdi_cellarray()
-  DEF w, h
+  DEF w, h, rp_ptr
   w := gem_ptrin[2] - gem_ptrin[0]
   IF w < 0
     w := -w
@@ -4845,6 +4845,27 @@ PROC vdi_cellarray()
     h := -h
   ENDIF
   h := h + 1
+  rp_ptr := gem_GetVDIRastPort()
+  IF rp_ptr <> 0 AND w > 0 AND h > 0
+    NATIVE {
+      struct RastPort *rp = (struct RastPort *)rp_ptr;
+      extern long vdi_pen_map[16];
+      extern long gem_ptrin[16];
+      extern long gem_intin[128];
+      long x1 = gem_ptrin[0], y1 = gem_ptrin[1];
+      int wi = (int)w, hi = (int)h;
+      int px, py;
+      for (py = 0; py < hi; py++) {
+        for (px = 0; px < wi; px++) {
+          int idx = py * wi + px;
+          int col = (idx < 128) ? (int)gem_intin[idx] : 0;
+          if (col < 0) col = 0; if (col > 15) col = 15;
+          SetAPen(rp, vdi_pen_map[col]);
+          WritePixel(rp, x1 + px, y1 + py);
+        }
+      }
+    } ENDNATIVE
+  ENDIF
   vdi_cur_x := gem_ptrin[2]
   vdi_cur_y := gem_ptrin[3]
   ctx[0] := 1
