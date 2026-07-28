@@ -4199,10 +4199,55 @@ PROC vdi_init_line_pats()
   vdi_line_pats[5] := $CCCC -> dash-dot (alternate)
 ENDPROC
 
+-> VDI pen colour to Amiga pen mapping (first 16 standard VDI colours)
+DEF vdi_pen_map[16]:ARRAY OF VALUE
+PROC vdi_init_pen_map()
+  vdi_pen_map[0] := 0; vdi_pen_map[1] := 1; vdi_pen_map[2] := 2; vdi_pen_map[3] := 3
+  vdi_pen_map[4] := 4; vdi_pen_map[5] := 5; vdi_pen_map[6] := 6; vdi_pen_map[7] := 7
+  vdi_pen_map[8] := 8; vdi_pen_map[9] := 9; vdi_pen_map[10] := 10; vdi_pen_map[11] := 11
+  vdi_pen_map[12] := 12; vdi_pen_map[13] := 13; vdi_pen_map[14] := 14; vdi_pen_map[15] := 15
+ENDPROC
+
+-> Set VDI drawing attributes on a RastPort (pen, writing mode, line pattern)
+PROC gem_SetVDIAttrs_RP(rp:PTR TO rastport) IS NATIVE {
+  extern long vdi_line_color;
+  extern long vdi_wr_mode;
+  extern long vdi_line_type;
+  extern long vdi_line_pats[6];
+  extern long vdi_pen_map[16];
+  struct RastPort *r = (struct RastPort *)rp;
+  int pen = (int)vdi_line_color;
+  if (pen < 0) pen = 0;
+  if (pen > 15) pen = 15;
+  SetAPen(r, vdi_pen_map[pen]);
+  switch ((int)vdi_wr_mode) {
+    case 1: SetDrMd(r, JAM1); break;
+    case 2: SetDrMd(r, JAM2); break;
+    case 3: SetDrMd(r, INVERS_XOR); break;
+    default: SetDrMd(r, JAM1); break;
+  }
+  { int lt = (int)vdi_line_type;
+    if (lt >= 0 && lt < 6) SetDrPt(r, vdi_line_pats[lt]);
+  }
+} ENDNATIVE
+
+-> Get RastPort from first open window (0 if none)
+PROC gem_GetVDIRastPort() IS NATIVE {
+  extern long gem_window_list[16];
+  struct Window *win;
+  int i;
+  for (i = 0; i < 16; i++) {
+    win = (struct Window *)gem_window_list[i];
+    if (win) return (long)win->RPort;
+  }
+  return 0;
+} ENDNATIVE !!LONG
+
 -> Open a virtual workstation with the given work-in array
 -> ctx[3] = work_in ptr (in emulated memory) — 45 words of device-independent attributes
 -> Returns handle via ctx[0]
 PROC vdi_opnvwk()
+  vdi_init_pen_map()
   vdi_handle := 1
   vdi_work_w := 640; vdi_work_h := 400
   vdi_dev_w := 640; vdi_dev_h := 400
@@ -4264,10 +4309,39 @@ ENDPROC
 -> ptsin = array of (x,y) coordinate pairs, count in ptsin_count
 -> Attributes: line type, line width, line colour
 PROC vdi_pline()
-  DEF pts
+  DEF pts, i, rp_ptr
   pts := gem_control[2]
   IF pts < 2 THEN pts := 2
-  -> Update cursor to last point
+  rp_ptr := gem_GetVDIRastPort()
+  IF rp_ptr <> 0
+    NATIVE {
+      struct RastPort *rp = (struct RastPort *)rp_ptr;
+      extern long vdi_line_color;
+      extern long vdi_wr_mode;
+      extern long vdi_line_type;
+      extern long vdi_line_pats[6];
+      extern long vdi_pen_map[16];
+      extern long gem_ptrin[16];
+      int pen = (int)vdi_line_color;
+      if (pen < 0) pen = 0; if (pen > 15) pen = 15;
+      SetAPen(rp, vdi_pen_map[pen]);
+      switch ((int)vdi_wr_mode) {
+        case 1: SetDrMd(rp, JAM1); break;
+        case 2: SetDrMd(rp, JAM2); break;
+        case 3: SetDrMd(rp, INVERS_XOR); break;
+        default: SetDrMd(rp, JAM1); break;
+      }
+      { int lt = (int)vdi_line_type;
+        if (lt >= 0 && lt < 6) SetDrPt(rp, vdi_line_pats[lt]);
+      }
+      Move(rp, (long)gem_ptrin[0], (long)gem_ptrin[1]);
+      { int j;
+        for (j = 1; j < (int)pts; j++) {
+          Draw(rp, (long)gem_ptrin[j * 2], (long)gem_ptrin[j * 2 + 1]);
+        }
+      }
+    } ENDNATIVE
+  ENDIF
   vdi_cur_x := gem_ptrin[(pts - 1) * 2]
   vdi_cur_y := gem_ptrin[(pts - 1) * 2 + 1]
   ctx[0] := 1
@@ -4288,6 +4362,34 @@ ENDPROC
 -> v_gtext - Draw graphics text at position
 -> Position in ptsin[0], ptsin[1]; text in intin (null-terminated)
 PROC vdi_gtext()
+  DEF rp_ptr, len, j
+  rp_ptr := gem_GetVDIRastPort()
+  IF rp_ptr <> 0
+    len := gem_control[0]
+    IF len > 64 THEN len := 64
+    NATIVE {
+      struct RastPort *rp = (struct RastPort *)rp_ptr;
+      extern long vdi_text_color;
+      extern long vdi_wr_mode;
+      extern long vdi_pen_map[16];
+      extern long gem_ptrin[16];
+      extern long gem_intin[128];
+      char txt[65];
+      int pen = (int)vdi_text_color;
+      int k, tlen = (int)len;
+      if (pen < 0) pen = 0; if (pen > 15) pen = 15;
+      SetAPen(rp, vdi_pen_map[pen]);
+      SetDrMd(rp, JAM2);
+      for (k = 0; k < tlen; k++) {
+        unsigned char ch = (unsigned char)((long)gem_intin[k]);
+        if (ch == 0) break;
+        txt[k] = ch;
+      }
+      txt[k] = 0;
+      Move(rp, (long)gem_ptrin[0], (long)gem_ptrin[1]);
+      Text(rp, txt, k);
+    } ENDNATIVE
+  ENDIF
   vdi_cur_x := gem_ptrin[0]
   vdi_cur_y := gem_ptrin[1]
   ctx[0] := 1
@@ -4308,12 +4410,63 @@ ENDPROC
 -> v_bar - Draw filled rectangle (bar)
 -> ptsin[0..1] = top-left, ptsin[2..3] = bottom-right
 PROC vdi_bar()
+  DEF rp_ptr
+  rp_ptr := gem_GetVDIRastPort()
+  IF rp_ptr <> 0
+    NATIVE {
+      struct RastPort *rp = (struct RastPort *)rp_ptr;
+      extern long vdi_fill_color;
+      extern long vdi_pen_map[16];
+      extern long gem_ptrin[16];
+      int pen = (int)vdi_fill_color;
+      if (pen < 0) pen = 0; if (pen > 15) pen = 15;
+      SetAPen(rp, vdi_pen_map[pen]);
+      RectFill(rp, (long)gem_ptrin[0], (long)gem_ptrin[1],
+                   (long)gem_ptrin[2], (long)gem_ptrin[3]);
+    } ENDNATIVE
+  ENDIF
   ctx[0] := 1
 ENDPROC
 
 -> v_circle - Draw circle
 -> ptsin[0], ptsin[1] = centre; intin[0] = radius
 PROC vdi_circle()
+  DEF rp_ptr
+  rp_ptr := gem_GetVDIRastPort()
+  IF rp_ptr <> 0
+    NATIVE {
+      struct RastPort *rp = (struct RastPort *)rp_ptr;
+      extern long vdi_line_color;
+      extern long vdi_wr_mode;
+      extern long vdi_line_type;
+      extern long vdi_line_pats[6];
+      extern long vdi_pen_map[16];
+      extern long gem_ptrin[16];
+      extern long gem_intin[128];
+      long cx = gem_ptrin[0], cy = gem_ptrin[1];
+      long r = gem_intin[0];
+      int pen = (int)vdi_line_color;
+      int angle;
+      if (pen < 0) pen = 0; if (pen > 15) pen = 15;
+      SetAPen(rp, vdi_pen_map[pen]);
+      switch ((int)vdi_wr_mode) {
+        case 1: SetDrMd(rp, JAM1); break;
+        case 2: SetDrMd(rp, JAM2); break;
+        case 3: SetDrMd(rp, INVERS_XOR); break;
+        default: SetDrMd(rp, JAM1); break;
+      }
+      { int lt = (int)vdi_line_type;
+        if (lt >= 0 && lt < 6) SetDrPt(rp, vdi_line_pats[lt]);
+      }
+      for (angle = 0; angle <= 360; angle += 15) {
+        double rad = angle * 3.14159265 / 180.0;
+        long px = cx + (long)(r * cos(rad));
+        long py = cy + (long)(r * sin(rad));
+        if (angle == 0) Move(rp, px, py);
+        else Draw(rp, px, py);
+      }
+    } ENDNATIVE
+  ENDIF
   vdi_cur_x := gem_ptrin[0] + gem_intin[0]
   vdi_cur_y := gem_ptrin[1]
   ctx[0] := 1
@@ -4322,6 +4475,42 @@ ENDPROC
 -> v_ellipse - Draw ellipse
 -> ptsin[0], ptsin[1] = centre; intin[0] = x radius; intin[1] = y radius
 PROC vdi_ellipse()
+  DEF rp_ptr
+  rp_ptr := gem_GetVDIRastPort()
+  IF rp_ptr <> 0
+    NATIVE {
+      struct RastPort *rp = (struct RastPort *)rp_ptr;
+      extern long vdi_line_color;
+      extern long vdi_wr_mode;
+      extern long vdi_line_type;
+      extern long vdi_line_pats[6];
+      extern long vdi_pen_map[16];
+      extern long gem_ptrin[16];
+      extern long gem_intin[128];
+      long cx = gem_ptrin[0], cy = gem_ptrin[1];
+      long rx = gem_intin[0], ry = gem_intin[1];
+      int pen = (int)vdi_line_color;
+      int angle;
+      if (pen < 0) pen = 0; if (pen > 15) pen = 15;
+      SetAPen(rp, vdi_pen_map[pen]);
+      switch ((int)vdi_wr_mode) {
+        case 1: SetDrMd(rp, JAM1); break;
+        case 2: SetDrMd(rp, JAM2); break;
+        case 3: SetDrMd(rp, INVERS_XOR); break;
+        default: SetDrMd(rp, JAM1); break;
+      }
+      { int lt = (int)vdi_line_type;
+        if (lt >= 0 && lt < 6) SetDrPt(rp, vdi_line_pats[lt]);
+      }
+      for (angle = 0; angle <= 360; angle += 15) {
+        double rad = angle * 3.14159265 / 180.0;
+        long px = cx + (long)(rx * cos(rad));
+        long py = cy + (long)(ry * sin(rad));
+        if (angle == 0) Move(rp, px, py);
+        else Draw(rp, px, py);
+      }
+    } ENDNATIVE
+  ENDIF
   vdi_cur_x := gem_ptrin[0] + gem_intin[0]
   vdi_cur_y := gem_ptrin[1]
   ctx[0] := 1
