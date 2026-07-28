@@ -4872,8 +4872,56 @@ PROC vdi_cellarray()
 ENDPROC
 
 -> v_bezier - Draw Bezier curve
--> ptsin = control points; intin[0] = number of points
+-> ptsin = control points (pairs of x,y); intin[0] = number of control points
 PROC vdi_bezier()
+  DEF rp_ptr, npts
+  rp_ptr := gem_GetVDIRastPort()
+  npts := gem_intin[0]
+  IF rp_ptr <> 0 AND npts >= 4
+    NATIVE {
+      struct RastPort *rp = (struct RastPort *)rp_ptr;
+      extern long vdi_line_color;
+      extern long vdi_wr_mode;
+      extern long vdi_line_type;
+      extern long vdi_line_pats[6];
+      extern long vdi_pen_map[16];
+      extern long gem_ptrin[16];
+      int pen = (int)vdi_line_color;
+      int np = (int)npts;
+      int i;
+      if (pen < 0) pen = 0; if (pen > 15) pen = 15;
+      SetAPen(rp, vdi_pen_map[pen]);
+      switch ((int)vdi_wr_mode) {
+        case 1: SetDrMd(rp, JAM1); break;
+        case 2: SetDrMd(rp, JAM2); break;
+        case 3: SetDrMd(rp, INVERS_XOR); break;
+        default: SetDrMd(rp, JAM1); break;
+      }
+      { int lt = (int)vdi_line_type;
+        if (lt >= 0 && lt < 6) SetDrPt(rp, vdi_line_pats[lt]);
+      }
+      Move(rp, (long)gem_ptrin[0], (long)gem_ptrin[1]);
+      for (i = 3; i < np; i += 3) {
+        double px0 = gem_ptrin[(i-3)*2], py0 = gem_ptrin[(i-3)*2+1];
+        double px1 = gem_ptrin[(i-2)*2], py1 = gem_ptrin[(i-2)*2+1];
+        double px2 = gem_ptrin[(i-1)*2], py2 = gem_ptrin[(i-1)*2+1];
+        double px3 = gem_ptrin[i*2],     py3 = gem_ptrin[i*2+1];
+        int steps = 30, s;
+        for (s = 1; s <= steps; s++) {
+          double t = (double)s / steps;
+          double t2 = t * t, t3 = t2 * t;
+          double mt = 1.0 - t, mt2 = mt * mt, mt3 = mt2 * mt;
+          long cx = (long)(mt3*px0 + 3*mt2*t*px1 + 3*mt*t2*px2 + t3*px3);
+          long cy = (long)(mt3*py0 + 3*mt2*t*py1 + 3*mt*t2*py2 + t3*py3);
+          Draw(rp, cx, cy);
+        }
+      }
+    } ENDNATIVE
+  ENDIF
+  IF npts > 0
+    vdi_cur_x := gem_ptrin[(npts - 1) * 2]
+    vdi_cur_y := gem_ptrin[(npts - 1) * 2 + 1]
+  ENDIF
   ctx[0] := 1
 ENDPROC
 
