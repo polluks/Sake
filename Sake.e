@@ -788,15 +788,17 @@ ENDPROC
 PROC load_prg(filename:PTR TO CHAR)
   DEF fh:BPTR, header[32]:ARRAY OF CHAR, result
   DEF text_size, data_size, bss_size, total_size
-  DEF addr:PTR TO CHAR
+  DEF addr:PTR TO CHAR, rel_flag, text_start
   result := 0
 
   fh := Open(filename, 1005)
   IF fh
-    IF Read(fh, header, 32) >= 32
+    IF Read(fh, header, 32) >= 28
       text_size := asLONG(header[2])
       data_size := asLONG(header[6])
       bss_size := asLONG(header[10])
+      text_start := asLONG(header[18])
+      rel_flag := asINT(header[26])
       total_size := text_size + data_size + bss_size
 
       addr := asPTR(AllocMem(total_size, 65538))
@@ -811,6 +813,38 @@ PROC load_prg(filename:PTR TO CHAR)
           IF Read(fh, addr + text_size, data_size) < data_size
             result := 0
           ENDIF
+        ENDIF
+        -> Apply relocation table if present
+        IF result <> 0 AND rel_flag <> 0 AND text_start <> 0
+          NATIVE {
+            unsigned char *base = (unsigned char *)result;
+            long adj = (long)result - text_start;
+            long offset = 0;
+            long td_size = text_size + data_size;
+            if (adj != 0) {
+              while (offset < td_size) {
+                unsigned char ctrl = 0;
+                if (Read(fh, &ctrl, 1) != 1) break;
+                if (ctrl == 0) {
+                  offset = (offset + 256) & ~0xFFL;
+                } else if (ctrl & 0x80) {
+                  offset += (ctrl & 0x7F) * 256;
+                } else {
+                  int i;
+                  for (i = 0; i < ctrl; i++) {
+                    unsigned char boff = 0;
+                    if (Read(fh, &boff, 1) != 1) break;
+                    long addr_fix = (offset & ~0xFFL) + boff;
+                    if (addr_fix + 4 <= td_size) {
+                      long *lp = (long *)(base + addr_fix);
+                      *lp += adj;
+                    }
+                  }
+                  offset = (offset & ~0xFFL) + 256;
+                }
+              }
+            }
+          } ENDNATIVE
         ENDIF
         IF result = 0
           FreeMem(addr, total_size)
