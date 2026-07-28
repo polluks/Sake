@@ -43,6 +43,12 @@ Notable implementations:
   embedded as a static glyph table matching the ST ROM layout.
 - **Mouse pointers** — four predefined shapes (arrow, hourglass, I-beam, pointing
   finger) initialized in pure PortablE with inline sprite data.
+- **GEM radio buttons** — mutual-exclusive radio button groups mapped to native
+  gadtools `CreateGadgetA(RADIO_KIND, …)` gadgets. `gem_form_do` creates a
+  native window via `gem_wind_open`, attaches radio gadgets derived from
+  GEM object specs, and runs an IDCMP event loop with gadget clicks
+  synchronised back to GEM `SELECTED` state. Objects of type 21 (`G_RBUTTON`)
+  are drawn with filled circles in the GEM form overlay.
 - **Minimal NATIVE** — inline C is largely avoided; AmigaOS calls like
   `SetPointer`/`ClearPointer` and `TextFont` struct setup are wrapped as
   single-line `IS NATIVE` PortablE declarations.
