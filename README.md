@@ -4,7 +4,7 @@ Sake maps Atari ST system calls to native AmigaOS libraries:
 - **GEMDOS** (Trap #1) → `dos.library` / `exec.library`
 - **BIOS** (Trap #2) → AmigaOS equivalents
 - **XBIOS** (Trap #2, extended) → AmigaOS equivalents  
-- **AES** (Trap #2, $C8) → `intuition.library` / `gadtools.library`
+- **AES** (Trap #2, $C8) → `intuition.library` / `gadtools.library` / `reqtools.library`
 - **VDI** (Trap #2, $C9) → `graphics.library`
 
 ## Build
@@ -50,7 +50,8 @@ Notable implementations:
   synchronised back to GEM `SELECTED` state. Objects of type 21 (`G_RBUTTON`)
   are drawn with filled circles in the GEM form overlay.
 - **Minimal NATIVE** — inline C is largely avoided; AmigaOS calls like
-  `SetPointer`/`ClearPointer` and `TextFont` struct setup are wrapped as
+  `SetPointer`/`ClearPointer`, `TextFont` struct setup, and
+  `reqtools.library` `EasyRequest()` for GEM alerts are wrapped as
   single-line `IS NATIVE` PortablE declarations.
 
 VDI implements colour palette (16 standard Atari colours via `vdi_rgb`),
