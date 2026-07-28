@@ -31,6 +31,10 @@ DEF gem_window_list[16]:ARRAY OF VALUE -> Open window handles (Intuition Window 
 DEF gem_aes_global[32]:ARRAY OF VALUE -> AES global array
 DEF gem_scrn_w, gem_scrn_h   -> Virtual screen dimensions
 DEF gadtools_base            -> gadtools.library base (opened at runtime)
+DEF reqtools_base            -> reqtools.library base (opened at runtime)
+DEF gem_cookie_jar           -> pointer to cookie jar (AllocMem'd block)
+DEF gem_cookie_count         -> number of active entries (excluding sentinel)
+DEF gem_cookie_max           -> max entries the jar can hold
 
 -> GEMDOS constants for Seek mode mapping
 CONST GEMDOS_SEEK_START = 0, GEMDOS_SEEK_CUR = 1, GEMDOS_SEEK_END = 2
@@ -130,6 +134,7 @@ PROC gemdos_dispatch()
   CASE $33 -> gemdos_tgettime()
   CASE $34 -> gemdos_tsettime()
   CASE $39 -> gemdos_mxalloc()
+  CASE $164 -> gemdos_ssystem()
 
   DEFAULT
     ctx[0] := E_ERROR
@@ -778,6 +783,74 @@ PROC gemdos_mxalloc()
     ENDIF
   ENDIF
   ctx[0] := asLONG(ptr)
+ENDPROC
+
+
+-> ---------------------------------------------------------------------------
+-> Ssystem ($164) - System function / cookie operations
+-> D1 = sub-function
+->   0 = S_INQUIRE: returns E_OK if Ssystem is supported
+->   1 = S_GETCOOKIE: D2 = cookie id, A0 = pointer to value
+->   2 = S_PUTCOOKIE: D2 = cookie id, D3 = value
+->   3 = S_DELCOOKIE: D2 = cookie id
+-> ---------------------------------------------------------------------------
+PROC gemdos_ssystem()
+  DEF subfn, cookie_id, value, value_ptr, id_str[5]:ARRAY OF CHAR, idx, base
+  subfn := ctx[1]
+  cookie_id := ctx[2]
+  SELECT subfn
+  CASE 0 -> -> S_INQUIRE: Ssystem is available
+    ctx[0] := E_OK
+  CASE 1 -> -> S_GETCOOKIE
+    -> Convert long id to string for lookup
+    id_str[0] := (cookie_id >> 24) AND $FF
+    id_str[1] := (cookie_id >> 16) AND $FF
+    id_str[2] := (cookie_id >> 8) AND $FF
+    id_str[3] := cookie_id AND $FF
+    id_str[4] := 0
+    value_ptr := asPTR(ctx[3])
+    IF gem_cookie_get(id_str, value_ptr)
+      ctx[0] := E_OK
+    ELSE
+      ctx[0] := E_ERROR
+    ENDIF
+  CASE 2 -> -> S_PUTCOOKIE
+    id_str[0] := (cookie_id >> 24) AND $FF
+    id_str[1] := (cookie_id >> 16) AND $FF
+    id_str[2] := (cookie_id >> 8) AND $FF
+    id_str[3] := cookie_id AND $FF
+    id_str[4] := 0
+    -> If cookie already exists, update it
+    idx := gem_cookie_find(id_str)
+    IF idx >= 0
+      base := gem_cookie_jar + idx * COOKIE_SIZE
+      NATIVE {
+        long *entry = (long *)base;
+        entry[1] = ctx[3];
+      } ENDNATIVE
+      ctx[0] := E_OK
+    ELSE
+      -> Add new cookie
+      IF gem_cookie_add(id_str, ctx[3])
+        ctx[0] := E_OK
+      ELSE
+        ctx[0] := E_ERROR
+      ENDIF
+    ENDIF
+  CASE 3 -> -> S_DELCOOKIE
+    id_str[0] := (cookie_id >> 24) AND $FF
+    id_str[1] := (cookie_id >> 16) AND $FF
+    id_str[2] := (cookie_id >> 8) AND $FF
+    id_str[3] := cookie_id AND $FF
+    id_str[4] := 0
+    IF gem_cookie_remove(id_str)
+      ctx[0] := E_OK
+    ELSE
+      ctx[0] := E_ERROR
+    ENDIF
+  DEFAULT
+    ctx[0] := E_ERROR
+  ENDSELECT
 ENDPROC
 
 
@@ -1677,6 +1750,133 @@ ENDPROC (gadtools_base <> 0)
 
 PROC gem_OpenGadTools() IS NATIVE { extern unsigned long gadtools_base; gadtools_base = (unsigned long)OpenLibrary("gadtools.library", 0); } ENDNATIVE
 PROC gem_OpenGadTools13() IS NATIVE { extern unsigned long gadtools_base; gadtools_base = (unsigned long)OpenLibrary("gadtools13.library", 0); } ENDNATIVE
+
+PROC gem_OpenReqTools() IS NATIVE { extern unsigned long reqtools_base; reqtools_base = (unsigned long)OpenLibrary("reqtools.library", 39); } ENDNATIVE
+PROC gem_FreeReqTools() IS NATIVE { extern unsigned long reqtools_base; if (reqtools_base) { CloseLibrary((struct Library *)reqtools_base); reqtools_base = 0; } } ENDNATIVE
+
+
+-> ---------------------------------------------------------------------------
+-> Cookie Jar - Atari ST cookie jar emulation
+-> ---------------------------------------------------------------------------
+-> The cookie jar is a table of { LONG id; LONG value; } pairs in memory,
+-> terminated by a NULL cookie whose value = max capacity.
+-> Layout: COOKIE[0] .. COOKIE[N-1], COOKIE[N] = {0, max_entries}
+
+CONST COOKIE_SIZE = 8, COOKIE_JAR_MAX = 64
+
+-> Initialize the cookie jar with standard entries
+PROC gem_init_cookie_jar()
+  DEF jar_ptr
+  gem_cookie_max := COOKIE_JAR_MAX
+  gem_cookie_count := 0
+  -> Allocate cookie jar: (max+1) entries * 8 bytes each (extra for sentinel)
+  jar_ptr := asLONG(AllocMem((gem_cookie_max + 1) * COOKIE_SIZE, MEMF_CLEAR))
+  IF jar_ptr = 0
+    gem_cookie_jar := 0
+    ENDPROC
+  ENDIF
+  gem_cookie_jar := jar_ptr
+  -> Set sentinel: NULL id = 0, value = max capacity
+  gem_cookie_set_sentinel()
+  -> Add standard Atari ST cookies
+  -> _CPU: CPU type (0 = 68000)
+  gem_cookie_add('_CPU', 0)
+  -> _VDO: video system (1 = ST)
+  gem_cookie_add('_VDO', 1)
+  -> _MCH: machine type (0 = ST)
+  gem_cookie_add('_MCH', 0)
+  -> _FPU: FPU type (0 = none)
+  gem_cookie_add('_FPU', 0)
+  -> Sake emulator cookie
+  gem_cookie_add('Sake', 1)
+ENDPROC
+
+-> Set the sentinel entry (marks end of jar and stores max capacity)
+PROC gem_cookie_set_sentinel()
+  DEF base, sentinel
+  IF gem_cookie_jar = 0 THEN ENDPROC
+  base := gem_cookie_jar + gem_cookie_count * COOKIE_SIZE
+  NATIVE {
+    long *p = (long *)base;
+    p[0] = 0;            /* id = NULL */
+    p[1] = gem_cookie_max; /* value = max entries */
+  } ENDNATIVE
+ENDPROC
+
+-> Find a cookie by 4-byte id. Returns index or -1
+PROC gem_cookie_find(id_str:PTR TO CHAR)
+  DEF i, base, id_val
+  IF gem_cookie_jar = 0 THEN ENDPROC -1
+  -> Convert 4-char id to a long for comparison
+  NATIVE {
+    char *s = (char *)id_str;
+    id_val = (s[0]<<24) | (s[1]<<16) | (s[2]<<8) | s[3];
+  } ENDNATIVE
+  FOR i := 0 TO gem_cookie_count - 1
+    base := gem_cookie_jar + i * COOKIE_SIZE
+    NATIVE {
+      long *entry = (long *)base;
+      if (entry[0] == id_val) {
+        gem_cookie_find_result = i;
+        return;
+      }
+    } ENDNATIVE
+  ENDFOR
+ENDPROC -1
+
+DEF gem_cookie_find_result
+
+-> Add a cookie. Returns 1 on success, 0 if jar is full
+PROC gem_cookie_add(id_str:PTR TO CHAR, value:VALUE)
+  DEF base, id_val
+  IF gem_cookie_jar = 0 THEN ENDPROC 0
+  IF gem_cookie_count >= gem_cookie_max THEN ENDPROC 0
+  NATIVE {
+    char *s = (char *)id_str;
+    id_val = (s[0]<<24) | (s[1]<<16) | (s[2]<<8) | s[3];
+  } ENDNATIVE
+  base := gem_cookie_jar + gem_cookie_count * COOKIE_SIZE
+  NATIVE {
+    long *entry = (long *)base;
+    entry[0] = id_val;
+    entry[1] = value;
+  } ENDNATIVE
+  gem_cookie_count := gem_cookie_count + 1
+  gem_cookie_set_sentinel()
+ENDPROC 1
+
+-> Get a cookie value. Returns 1 if found (value via ptr), 0 if not
+PROC gem_cookie_get(id_str:PTR TO CHAR, value_ptr)
+  DEF idx, base
+  idx := gem_cookie_find(id_str)
+  IF idx < 0 THEN ENDPROC 0
+  base := gem_cookie_jar + idx * COOKIE_SIZE
+  NATIVE {
+    long *entry = (long *)base;
+    *(long *)value_ptr = entry[1];
+  } ENDNATIVE
+ENDPROC 1
+
+-> Remove a cookie by id. Returns 1 if removed, 0 if not found
+PROC gem_cookie_remove(id_str:PTR TO CHAR)
+  DEF idx, i, base, next_base
+  idx := gem_cookie_find(id_str)
+  IF idx < 0 THEN ENDPROC 0
+  -> Shift all following entries forward by one COOKIE_SIZE
+  FOR i := idx TO gem_cookie_count - 2
+    base := gem_cookie_jar + i * COOKIE_SIZE
+    next_base := base + COOKIE_SIZE
+    NATIVE {
+      long *dst = (long *)base;
+      long *src = (long *)next_base;
+      dst[0] = src[0];
+      dst[1] = src[1];
+    } ENDNATIVE
+  ENDFOR
+  gem_cookie_count := gem_cookie_count - 1
+  gem_cookie_set_sentinel()
+ENDPROC 1
+
 
 -> AES global arrays (as per GEM AES parameter block spec)
 DEF gem_control[12]:ARRAY OF VALUE -> control array
@@ -2730,15 +2930,122 @@ ENDPROC
 -> FSEL - File selector
 -> ============================
 
+-> fsel_exinput() - File selector (load mode)
+-> addr_in[0] = path (128 bytes), addr_in[1] = filename (13 bytes)
+-> intout[0] = 0=cancelled, 1=selected
+-> The path and filename are updated in place
 PROC gem_fsel_exinput()
-  -> Return path and filename
-  ctx[1] := 0   -> path ptr
-  ctx[2] := 0   -> selection ptr
-  ctx[0] := 0   -> 0=cancelled
+  DEF path_ptr, file_ptr
+  path_ptr := ctx[8]
+  file_ptr := ctx[9]
+  IF path_ptr = 0 OR file_ptr = 0
+    ctx[0] := 0
+    ctx[1] := 0
+    ENDPROC
+  ENDIF
+  NATIVE {
+    extern unsigned long reqtools_base;
+    APTR (*rtAllocRequestA)(ULONG, APTR, struct TagItem *);
+    APTR (*rtFileRequestA)(APTR, APTR, APTR, struct TagItem *);
+    void (*rtFreeRequest)(APTR);
+    struct TagItem tags[2];
+    APTR filereq;
+    char *path = (char *)path_ptr;
+    char *file = (char *)file_ptr;
+    long ok = 0;
+
+    if (!reqtools_base) { ctx[1] = 0; return; }
+
+    /* LVO offsets from library base:
+     * Library base points to first function (Open).
+     * User functions start at offset 24 (after Open/Close/Expunge/ExtFunc).
+     * rtAllocRequestA: LVO -132 -> offset 108
+     * rtFileRequestA:  LVO -204 -> offset 180
+     * rtFreeRequest:   LVO -138 -> offset 114
+     */
+    rtAllocRequestA = (APTR)((char *)reqtools_base + 108);
+    rtFreeRequest   = (APTR)((char *)reqtools_base + 114);
+    rtFileRequestA  = (APTR)((char *)reqtools_base + 180);
+
+    /* Allocate a file requester (type 0 = RTREQTYPE_FILE) */
+    filereq = rtAllocRequestA(0, 0, 0);
+    if (filereq) {
+      tags[0].ti_Tag  = 0; /* TAG_DONE */
+      tags[0].ti_Data = 0;
+
+      ok = rtFileRequestA(filereq, file, "Select File", tags);
+
+      if (ok) {
+        /* Directory string is at offset 100 in struct rtFileRequester */
+        char *dir = *((char **)((char *)filereq + 100));
+        int len = 0;
+        if (dir) {
+          while (dir[len] && len < 126) { path[len] = dir[len]; len++; }
+          /* Ensure trailing slash for AmigaOS directory paths */
+          if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+            path[len] = '/';
+            len++;
+          }
+        }
+        path[len] = 0;
+      }
+      rtFreeRequest(filereq);
+    }
+    ctx[1] = ok;
+  } ENDNATIVE
 ENDPROC
 
+-> fsel_exoutput() - File selector (save mode)
+-> Same as fsel_exinput but titled "Save File"
 PROC gem_fsel_exoutput()
-  ctx[0] := 0
+  DEF path_ptr, file_ptr
+  path_ptr := ctx[8]
+  file_ptr := ctx[9]
+  IF path_ptr = 0 OR file_ptr = 0
+    ctx[0] := 0
+    ctx[1] := 0
+    ENDPROC
+  ENDIF
+  NATIVE {
+    extern unsigned long reqtools_base;
+    APTR (*rtAllocRequestA)(ULONG, APTR, struct TagItem *);
+    APTR (*rtFileRequestA)(APTR, APTR, APTR, struct TagItem *);
+    void (*rtFreeRequest)(APTR);
+    struct TagItem tags[2];
+    APTR filereq;
+    char *path = (char *)path_ptr;
+    char *file = (char *)file_ptr;
+    long ok = 0;
+
+    if (!reqtools_base) { ctx[1] = 0; return; }
+
+    rtAllocRequestA = (APTR)((char *)reqtools_base + 108);
+    rtFreeRequest   = (APTR)((char *)reqtools_base + 114);
+    rtFileRequestA  = (APTR)((char *)reqtools_base + 180);
+
+    filereq = rtAllocRequestA(0, 0, 0);
+    if (filereq) {
+      tags[0].ti_Tag  = 0; /* TAG_DONE */
+      tags[0].ti_Data = 0;
+
+      ok = rtFileRequestA(filereq, file, "Save File", tags);
+
+      if (ok) {
+        char *dir = *((char **)((char *)filereq + 100));
+        int len = 0;
+        if (dir) {
+          while (dir[len] && len < 126) { path[len] = dir[len]; len++; }
+          if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+            path[len] = '/';
+            len++;
+          }
+        }
+        path[len] = 0;
+      }
+      rtFreeRequest(filereq);
+    }
+    ctx[1] = ok;
+  } ENDNATIVE
 ENDPROC
 
 
@@ -4287,6 +4594,8 @@ PROC main()
   gem_mouse_init()
   gem_init_fonts()
   gem_init_gadtools()
+  gem_OpenReqTools()
+  gem_init_cookie_jar()
   vdi_init_rgb()
   vdi_init_line_pats()
   vdi_handle := -1
@@ -4337,6 +4646,7 @@ PROC main()
 
     PutStr('\nAll GEMDOS functions completed\n')
   ENDIF
+  gem_FreeReqTools()
 ENDPROC
 
 
@@ -4482,10 +4792,11 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 -> Cookieptr ($1E) - Get cookie jar pointer
 -> A0 = pointer to cookie jar (Atari ST cookie jar)
+-> The jar is an array of { LONG id; LONG value; } terminated by a NULL
+-> cookie whose value holds the maximum capacity.
 -> ---------------------------------------------------------------------------
 PROC xbios_cookieptr()
-  -> Return 0 - no cookie jar in emulator
-  ctx[0] := 0
+  ctx[0] := gem_cookie_jar
 ENDPROC
 
 
