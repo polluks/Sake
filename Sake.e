@@ -1341,9 +1341,10 @@ DEF gem_wind_parent[MAX_WINDOWS]:ARRAY OF VALUE
 DEF gem_wind_handle[MAX_WINDOWS]:ARRAY OF VALUE
 
 -> Message queue for inter-application communication
-DEF gem_msg_queue[MAX_MESSAGES]:ARRAY OF VALUE  -> encoded messages (16-word packets)
+DEF gem_msg_queue[MAX_MESSAGES]:ARRAY OF VALUE  -> message class
 DEF gem_msg_src[MAX_MESSAGES]:ARRAY OF VALUE    -> source app ID
 DEF gem_msg_len[MAX_MESSAGES]:ARRAY OF VALUE    -> message length
+DEF gem_msg_data16[1024]:ARRAY OF VALUE -> full 16-word message data per slot (64*16)
 DEF gem_msg_head, gem_msg_tail
 
 -> Application tracking
@@ -1351,22 +1352,15 @@ DEF gem_app_list[MAX_APPS]:ARRAY OF VALUE -> app IDs
 DEF gem_app_count
 
 -> Menu tracking
-DEF gem_menu_tree[8]:ARRAY OF VALUE -> menu tree pointers
+DEF gem_menu_tree[8]:ARRAY OF VALUE -> GEM menu tree pointers
 DEF gem_menu_owner[8]:ARRAY OF VALUE -> owning app ID
 DEF gem_menu_count
 DEF gem_menu_bar_visible -> 0=none, 1=shown
 DEF gem_menu_active_app -> app ID whose menu bar is showing
--> Per-menu item state (max 64 items per menu tree, max 8 menus)
-DEF gem_menu_item_count[8]:ARRAY OF VALUE -> item count per tree
-DEF gem_menu_item_checked[8]:ARRAY OF VALUE -> bitmask of checked items
-DEF gem_menu_item_enabled[8]:ARRAY OF VALUE -> bitmask of enabled items
-DEF gem_menu_item_normal[8]:ARRAY OF VALUE -> bitmask of normal (non-inverted) items
-DEF gem_menu_item_text[8]:ARRAY OF VALUE -> pointer array to text strings (simulated)
-DEF gem_menu_item_text_buf[512]:ARRAY OF CHAR -> text storage buffer
-DEF gem_menu_pending_action -> 0=none, 1=item_selected
-DEF gem_menu_pending_item -> selected item index
-DEF gem_menu_pending_tree -> selected menu tree
-DEF gem_menu_pending_app -> app to notify
+-> Per-window AmigaOS menu strip tracking
+DEF gem_wind_amiga_menu[16]:ARRAY OF VALUE -> AmigaOS Menu* per window slot
+DEF gem_wind_newmenu[16]:ARRAY OF VALUE  -> NewMenu* per window slot (for cleanup)
+DEF gem_wind_gem_menu_idx[16]:ARRAY OF VALUE -> index into gem_menu_tree[] per window
 
 -> Object tree tracking
 DEF gem_obj_tree[8]:ARRAY OF VALUE -> object tree pointers
@@ -1416,6 +1410,142 @@ DEF gem_mouse_point_mask[16]:ARRAY OF VALUE
 
 PROC gem_SetPointer(window:PTR TO window, data:ARRAY OF VALUE, w:VALUE, h:VALUE, x:VALUE, y:VALUE) IS NATIVE { SetPointer((struct Window *)} window {, (UWORD *)} data {, (short)} w {, (short)} h {, (short)} x {, (short)} y {); } ENDNATIVE
 PROC gem_ClearPointer(window:PTR TO window) IS NATIVE { ClearPointer((struct Window *)} window {); } ENDNATIVE
+
+-> ---------------------------------------------------------------------------
+-> Gadtools menu NATIVE wrappers
+-> ---------------------------------------------------------------------------
+
+-> Convert GEM OBJECT tree to AmigaOS NewMenu array (returns menu strip pointer)
+PROC gem_CreateMenusFromTree(tree:VALUE) IS NATIVE {
+  extern unsigned long gadtools_base;
+  struct GEMObject { short next, head, tail; unsigned short flags, state, type; long spec; short x, y, w, h; };
+  struct GEMObject *objtree = (struct GEMObject *)tree;
+  struct NewMenu *nm;
+  int i, count = 0, title_count = 0, item_count = 0;
+  if (!gadtools_base || !tree) return 0;
+  /* count titles and items */
+  for (i = 0; objtree[i].type != 0; i++) {
+    if (objtree[i].type == 25) title_count++;
+    else if (objtree[i].type == 26) item_count++;
+  }
+  if (title_count == 0) return 0;
+  nm = (struct NewMenu *)AllocMem((title_count + item_count + 1) * sizeof(struct NewMenu), MEMF_CLEAR);
+  if (!nm) return 0;
+  count = 0;
+  for (i = 0; objtree[i].type != 0; i++) {
+    if (objtree[i].type == 25) {
+      /* G_TITLE -> NM_TITLE */
+      nm[count].nm_Type = NM_TITLE;
+      nm[count].nm_Label = (STRPTR)objtree[i].spec;
+      nm[count].nm_CommKey = NULL;
+      nm[count].nm_Flags = 0;
+      nm[count].nm_MutualExclude = 0;
+      nm[count].nm_UserData = (APTR)i;
+      count++;
+    } else if (objtree[i].type == 26) {
+      /* G_STRING -> NM_ITEM */
+      nm[count].nm_Type = NM_ITEM;
+      nm[count].nm_Label = (STRPTR)objtree[i].spec;
+      nm[count].nm_CommKey = NULL;
+      nm[count].nm_Flags = (objtree[i].state & 0x01) ? 0 : NM_ITEMDISABLED;
+      if (objtree[i].state & 0x08) nm[count].nm_Flags |= CHECKIT;
+      nm[count].nm_MutualExclude = 0;
+      nm[count].nm_UserData = (APTR)i;
+      count++;
+    }
+  }
+  nm[count].nm_Type = NM_END;
+  return (unsigned long)nm;
+} ENDNATIVE !!VALUE
+
+-> Create menus from NewMenu array via gadtools
+PROC gem_CreateMenus(nm:VALUE) IS NATIVE {
+  extern unsigned long gadtools_base;
+  struct Menu *m;
+  if (!gadtools_base || !nm) return 0;
+  m = CreateMenusA((struct NewMenu *)nm, NULL);
+  return (unsigned long)m;
+} ENDNATIVE !!VALUE
+
+-> Layout menus for the current screen
+PROC gem_LayoutMenus(menu:VALUE) IS NATIVE {
+  extern unsigned long gadtools_base;
+  struct Screen *scr = LockPubScreen(NULL);
+  if (!gadtools_base || !menu || !scr) { if (scr) UnlockPubScreen(NULL, scr); return 0; }
+  LayoutMenusA((struct Menu *)menu, scr, NULL);
+  UnlockPubScreen(NULL, scr);
+  return 1;
+} ENDNATIVE !!VALUE
+
+-> Attach menu strip to window
+PROC gem_SetMenuStrip(win:VALUE, menu:VALUE) IS NATIVE {
+  extern unsigned long gadtools_base;
+  if (!gadtools_base || !win || !menu) return 0;
+  return (unsigned long)SetMenuStrip((struct Window *)win, (struct Menu *)menu);
+} ENDNATIVE !!VALUE
+
+-> Remove menu strip from window
+PROC gem_ClearMenuStrip(win:VALUE) IS NATIVE {
+  extern unsigned long gadtools_base;
+  if (!gadtools_base || !win) return;
+  ClearMenuStrip((struct Window *)win);
+} ENDNATIVE
+
+-> Free a menu strip
+PROC gem_FreeMenus(menu:VALUE) IS NATIVE {
+  extern unsigned long gadtools_base;
+  if (!gadtools_base || !menu) return;
+  FreeMenus((struct Menu *)menu);
+} ENDNATIVE
+
+-> Free NewMenu array
+PROC gem_FreeNewMenu(nm:VALUE) IS NATIVE {
+  if (!nm) return;
+  FreeMem((APTR)nm, 0);
+} ENDNATIVE
+
+-> Check/uncheck a menu item via GT_SetGadgetAttrs
+PROC gem_SetMenuCheck(win:VALUE, menu:VALUE, item_num:VALUE, checked:VALUE) IS NATIVE {
+  extern unsigned long gadtools_base;
+  struct Window *w = (struct Window *)win;
+  struct Menu *m = (struct Menu *)menu;
+  struct MenuItem *mi;
+  UWORD menunum = item_num >> 8;
+  UWORD itemnum = item_num & 0xFF;
+  if (!gadtools_base || !w || !m) return;
+  mi = ItemAddress(m, (menunum << 8) | itemnum);
+  if (mi) {
+    if (checked) mi->Flags |= CHECKED;
+    else mi->Flags &= ~CHECKED;
+    GT_SetGadgetAttrs(NULL, w, NULL, TAG_DONE);
+  }
+} ENDNATIVE
+
+-> Enable/disable a menu item
+PROC gem_SetMenuEnable(win:VALUE, menu:VALUE, item_num:VALUE, enabled:VALUE) IS NATIVE {
+  extern unsigned long gadtools_base;
+  struct Window *w = (struct Window *)win;
+  struct Menu *m = (struct Menu *)menu;
+  struct MenuItem *mi;
+  UWORD menunum = item_num >> 8;
+  UWORD itemnum = item_num & 0xFF;
+  if (!gadtools_base || !w || !m) return;
+  mi = ItemAddress(m, (menunum << 8) | itemnum);
+  if (mi) {
+    if (enabled) mi->Flags &= ~ITEMENABLED;
+    else mi->Flags |= ITEMENABLED;
+    GT_SetGadgetAttrs(NULL, w, NULL, TAG_DONE);
+  }
+} ENDNATIVE
+
+-> Decode AmigaOS MENUPICK code: returns menu number and item number
+PROC gem_DecodeMenuCode(code:VALUE, menunum:VALUE, itemnum:VALUE) IS NATIVE {
+  unsigned short c = (unsigned short)code;
+  if (c == MENUNUM) return 0;
+  *((short *)menunum) = (c >> 8) & 0xFF;
+  *((short *)itemnum) = c & 0xFF;
+  return 1;
+} ENDNATIVE !!INT
 PROC gem_TextFontInit16(f:PTR TO textfont) IS NATIVE { struct TextFont *tf = (struct TextFont *)gem_font_8x16; tf->tf_Message.mn_ReplyPort=NULL; tf->tf_Message.mn_Length=sizeof(struct TextFont); tf->tf_YSize=16; tf->tf_Style=0; tf->tf_Flags=0; tf->tf_XSize=8; tf->tf_Baseline=13; tf->tf_BoldSmear=0; tf->tf_Accessors=0; tf->tf_LoChar=0; tf->tf_HiChar=255; tf->tf_CharData=(APTR)gem_font_data_8x16; tf->tf_Modulo=8; tf->tf_CharLoc=(APTR)gem_font_loc_8x16; tf->tf_CharSpace=(APTR)gem_font_width_8x16; tf->tf_CharKern=NULL; } ENDNATIVE
 PROC gem_TextFontInit8(f:PTR TO textfont) IS NATIVE { struct TextFont *tf = (struct TextFont *)gem_font_8x8; tf->tf_Message.mn_ReplyPort=NULL; tf->tf_Message.mn_Length=sizeof(struct TextFont); tf->tf_YSize=8; tf->tf_Style=0; tf->tf_Flags=0; tf->tf_XSize=8; tf->tf_Baseline=7; tf->tf_BoldSmear=0; tf->tf_Accessors=0; tf->tf_LoChar=0; tf->tf_HiChar=255; tf->tf_CharData=(APTR)gem_font_data_8x8; tf->tf_Modulo=8; tf->tf_CharLoc=(APTR)gem_font_loc_8x8; tf->tf_CharSpace=(APTR)gem_font_width_8x8; tf->tf_CharKern=NULL; } ENDNATIVE
 
@@ -1439,7 +1569,96 @@ PROC gem_WindowTitle(win:PTR TO window, title:PTR TO CHAR) IS NATIVE { WindowTit
 PROC gem_MoveWindow(win:PTR TO window, x:VALUE, y:VALUE) IS NATIVE { MoveWindow((struct Window *)} win {, (long)} x {, (long)} y {); } ENDNATIVE
 PROC gem_SizeWindow(win:PTR TO window, w:VALUE, h:VALUE) IS NATIVE { SizeWindow((struct Window *)} win {, (long)} w {, (long)} h {); } ENDNATIVE
 
-PROC gem_OpenWindow(x:VALUE, y:VALUE, w:VALUE, h:VALUE, title:PTR TO CHAR, kind:VALUE) IS NATIVE { struct Window *win; struct NewWindow nw; long flags = WFLG_SMART_REFRESH | WFLG_ACTIVATE | WFLG_GIMMEZEROZERO; long idcmp = IDCMP_CLOSEWINDOW | IDCMP_REFRESHWINDOW | IDCMP_SIZEVERIFY | IDCMP_NEWSIZE | IDCMP_MOUSEBUTTONS | IDCMP_MOUSEMOVE; if (kind & 2) flags |= WFLG_CLOSEGADGET; if (kind & 4) flags |= WFLG_DEPTHGADGET; if (kind & 8) flags |= WFLG_DRAGBAR; if (kind & 16) flags |= WFLG_SIZEGADGET; nw.LeftEdge = (long)} x {; nw.TopEdge = (long)} y {; nw.Width = (long)} w {; nw.Height = (long)} h {; nw.DetailPen = 0; nw.BlockPen = 1; nw.Title = (STRPTR)} title {; nw.Flags = flags; nw.IDCMPFlags = idcmp; nw.Type = WBENCHSCREEN; nw.FirstGadget = NULL; nw.CheckMark = NULL; nw.Screen = NULL; nw.BitMap = NULL; nw.MinWidth = 50; nw.MinHeight = 30; nw.MaxWidth = 2048; nw.MaxHeight = 2048; win = OpenWindow(&nw); return (unsigned long)win; } ENDNATIVE !!VALUE
+PROC gem_OpenWindow(x:VALUE, y:VALUE, w:VALUE, h:VALUE, title:PTR TO CHAR, kind:VALUE) IS NATIVE { struct Window *win; struct NewWindow nw; long flags = WFLG_SMART_REFRESH | WFLG_ACTIVATE | WFLG_GIMMEZEROZERO; long idcmp = IDCMP_CLOSEWINDOW | IDCMP_REFRESHWINDOW | IDCMP_SIZEVERIFY | IDCMP_NEWSIZE | IDCMP_MOUSEBUTTONS | IDCMP_MOUSEMOVE | IDCMP_MENUPICK; if (kind & 2) flags |= WFLG_CLOSEGADGET; if (kind & 4) flags |= WFLG_DEPTHGADGET; if (kind & 8) flags |= WFLG_DRAGBAR; if (kind & 16) flags |= WFLG_SIZEGADGET; nw.LeftEdge = (long)} x {; nw.TopEdge = (long)} y {; nw.Width = (long)} w {; nw.Height = (long)} h {; nw.DetailPen = 0; nw.BlockPen = 1; nw.Title = (STRPTR)} title {; nw.Flags = flags; nw.IDCMPFlags = idcmp; nw.Type = WBENCHSCREEN; nw.FirstGadget = NULL; nw.CheckMark = NULL; nw.Screen = NULL; nw.BitMap = NULL; nw.MinWidth = 50; nw.MinHeight = 30; nw.MaxWidth = 2048; nw.MaxHeight = 2048; win = OpenWindow(&nw); return (unsigned long)win; } ENDNATIVE !!VALUE
+
+-> ---------------------------------------------------------------------------
+-> MENUPICK poll: check all open windows for IDCMP_MENUPICK and translate
+-> to GEM MN_SELECTED messages pushed into the message queue.
+-> ---------------------------------------------------------------------------
+PROC gem_poll_menupick()
+  DEF i
+  FOR i := 0 TO 15
+    IF gem_window_list[i] <> 0
+      gem_poll_menupick_window(i)
+    ENDIF
+  ENDFOR
+ENDPROC
+
+PROC gem_poll_menupick_window(widx)
+  DEF code, menunum, itemnum, cur_menu, cur_item, obj_idx
+  DEF menu_idx, gem_tree, dest_id, base, tail, wind_h
+  DEF msg_buf[16]:ARRAY OF VALUE
+  DEF obj_next
+
+  NATIVE {
+    struct Window *win = (struct Window *)gem_window_list[widx];
+    struct IntuiMessage *msg;
+    if (!win || !win->UserPort) return;
+    while ((msg = (struct IntuiMessage *)GetMsg(win->UserPort))) {
+      if (msg->Class == IDCMP_MENUPICK) {
+        UWORD code = msg->Code;
+        if (code == MENUNUM(255) || code == 0xFFFF) {
+          ReplyMsg((struct Message *)msg);
+          continue;
+        }
+        {
+          int menunum = MENUNUM(code);
+          int itemnum = ITEMNUM(code);
+          int menu_idx = gem_wind_gem_menu_idx[widx];
+          int gem_tree = (menu_idx >= 0) ? gem_menu_tree[menu_idx] : 0;
+          int obj_idx = 0, cur_menu = 0, cur_item = 0, j;
+          int dest_id = (menu_idx >= 0) ? gem_menu_owner[menu_idx] : 0;
+          int wind_h = gem_wind_handle[widx];
+          if (gem_tree) {
+            struct GEMObject { short next, head, tail; unsigned short flags, state, type; long spec; short x, y, w, h; };
+            struct GEMObject *obj = (struct GEMObject *)gem_tree;
+            for (j = 0; obj[j].type != 0; j++) {
+              if (obj[j].type == 25) { /* G_TITLE */
+                if (cur_menu == menunum) cur_item = 0;
+                cur_menu++;
+              } else if (obj[j].type == 26) { /* G_STRING */
+                if (cur_menu - 1 == menunum) {
+                  if (cur_item == itemnum) { obj_idx = j; break; }
+                  cur_item++;
+                }
+              }
+            }
+          }
+          /* Build 16-word GEM MN_SELECTED message */
+          {
+            int tail = gem_msg_tail;
+            /* Clear message buffer */
+            for (j = 0; j < 16; j++) msg_buf[j] = 0;
+            msg_buf[0] = 10;                    /* MN_SELECTED */
+            msg_buf[1] = dest_id;               /* dest app ID (stored as-is) */
+            msg_buf[2] = wind_h;                /* window handle */
+            msg_buf[8] = gem_tree & 0xFFFF;     /* tree pointer low word */
+            msg_buf[9] = (gem_tree >> 16) & 0xFFFF; /* tree pointer high word */
+            msg_buf[10] = obj_idx;              /* item index */
+            /* Store into queue */
+            gem_msg_queue[tail] = 10;
+            gem_msg_src[tail] = dest_id;
+            gem_msg_len[tail] = 8;
+            base = tail * 16;
+            for (j = 0; j < 16; j++) gem_msg_data16[base + j] = msg_buf[j];
+            tail++;
+            if (tail >= 32) tail = 0;
+            gem_msg_tail = tail;
+          }
+        }
+        ReplyMsg((struct Message *)msg);
+      } else if (msg->Class == IDCMP_CLOSEWINDOW) {
+        ReplyMsg((struct Message *)msg);
+      } else if (msg->Class == IDCMP_NEWSIZE) {
+        ReplyMsg((struct Message *)msg);
+      } else if (msg->Class == IDCMP_MOUSEBUTTONS) {
+        ReplyMsg((struct Message *)msg);
+      } else {
+        ReplyMsg((struct Message *)msg);
+      }
+    }
+  } ENDNATIVE
+ENDPROC
 
 -> Draw a filled rectangle on the first open window's RastPort
 PROC gem_DrawRect(x:VALUE, y:VALUE, w:VALUE, h:VALUE, filled:VALUE) IS NATIVE { struct Window *win; int i; for (i = 0; i < 16; i++) { win = (struct Window *)gem_window_list[i]; if (win) break; } if (!win) return; if (filled) { SetAPen(win->RPort, 0); RectFill(win->RPort, (long)} x {, (long)} y {, (long)(} x { + } w { - 1), (long)(} y { + } h { - 1)); } else { SetAPen(win->RPort, 1); Draw(win->RPort, (long)} x {, (long)} y {); Draw(win->RPort, (long)(} x { + } w {), (long)} y {); Draw(win->RPort, (long)(} x { + } w {), (long)(} y { + } h {)); Draw(win->RPort, (long)} x {, (long)(} y { + } h {)); Draw(win->RPort, (long)} x {, (long)} y {); } } ENDNATIVE
@@ -1503,6 +1722,27 @@ PROC gem_msg_push(msg, src, len)
   ENDIF
 ENDPROC
 
+-> Copy 16 words of message data into the slot at index
+PROC gem_msg_copy_data(idx, src_ptr)
+  DEF i, base
+  base := idx * 16
+  FOR i := 0 TO 15
+    gem_msg_data16[base + i] := src_ptr[i]
+  ENDFOR
+ENDPROC
+
+-> Write a 16-word GEM message into a slot. data is an array of 16 VALUES.
+PROC gem_msg_write_slot(slot, src_id, data:ARRAY OF VALUE)
+  DEF base, i
+  gem_msg_queue[slot] := data[0]
+  gem_msg_src[slot] := src_id
+  gem_msg_len[slot] := 8
+  base := slot * 16
+  FOR i := 0 TO 15
+    gem_msg_data16[base + i] := data[i]
+  ENDFOR
+ENDPROC
+
 -> Return bitmask with bit 'n' set (n=0..15)
 PROC gem_bit(n)
   DEF bits[16]:ARRAY OF VALUE, result
@@ -1528,7 +1768,25 @@ PROC gem_msg_pop()
     ENDIF
   ELSE
     ctx[0] := 0
+    ctx[1] := 0
+    ctx[2] := 0
   ENDIF
+ENDPROC
+
+-> Copy the 16-word message data from the popped message slot to a buffer pointer
+PROC gem_msg_copy_to_buf(buf_ptr)
+  DEF base, i
+  base := (gem_msg_head - 1) * 16
+  IF gem_msg_head = 0
+    base := (MAX_MESSAGES - 1) * 16
+  ENDIF
+  NATIVE {
+    short *dst = (short *)buf_ptr;
+    int i;
+    for (i = 0; i < 16; i++) {
+      dst[i] = (short)gem_msg_data16[base + i];
+    }
+  } ENDNATIVE
 ENDPROC
 
 
@@ -1755,9 +2013,16 @@ PROC gem_evnt_multi()
   result := 0
   done := 0
 
+  -> Poll for real Intuition MENUPICK events first (puts into message queue)
+  gem_poll_menupick()
+
   -> Check message queue first (highest priority)
   IF done = 0 AND gem_msg_head <> gem_msg_tail
     gem_msg_pop()
+    -> Copy the full 16-word message data to the app's message buffer
+    IF messag <> 0
+      gem_msg_copy_to_buf(messag)
+    ENDIF
     result := 3
     done := 1
   ENDIF
@@ -1790,7 +2055,12 @@ PROC gem_evnt_multi()
 ENDPROC
 
 PROC gem_evnt_mesag()
+  DEF msgbuf
+  msgbuf := ctx[8]
   gem_msg_pop()
+  IF msgbuf <> 0
+    gem_msg_copy_to_buf(msgbuf)
+  ENDIF
 ENDPROC
 
 PROC gem_evnt_button()
@@ -1991,142 +2261,185 @@ DEF gem_rsrc_gaddr_result
 -> MENU - Menu services
 -> ============================
 
+-> Find the first open window (used for menu attachment)
+PROC gem_find_first_window()
+  DEF i, result
+  result := -1
+  FOR i := 0 TO 15
+    IF gem_wind_state[i] = WS_OPEN AND gem_window_list[i] <> 0
+      result := i
+      i := 16
+    ENDIF
+  ENDFOR
+ENDPROC result
+
+-> menu_bar(tree, show) - Show or hide the menu bar
 PROC gem_menu_bar()
-  DEF tree, show, i
+  DEF tree, show, i, widx, nm, amiga_m
+  DEF menu_idx
   tree := ctx[3]
   show := ctx[4]
   IF show
-    gem_menu_bar_visible := 1
-    gem_menu_active_app := gem_aes_id
-    -> Find the menu tree owned by this app
+    -> Find which menu slot owns this tree
+    menu_idx := -1
     FOR i := 0 TO gem_menu_count - 1
-      IF gem_menu_owner[i] = gem_aes_id
-        gem_menu_pending_tree := gem_menu_tree[i]
+      IF gem_menu_tree[i] = tree
+        menu_idx := i
+        i := gem_menu_count
       ENDIF
     ENDFOR
+    -> Attach to first open window
+    widx := gem_find_first_window()
+    IF widx >= 0 AND menu_idx >= 0
+      -> Free any previous menu on this window
+      IF gem_wind_amiga_menu[widx] <> 0
+        gem_ClearMenuStrip(asWIN(gem_window_list[widx]))
+        gem_FreeMenus(gem_wind_amiga_menu[widx])
+        gem_wind_amiga_menu[widx] := 0
+      ENDIF
+      IF gem_wind_newmenu[widx] <> 0
+        gem_FreeNewMenu(gem_wind_newmenu[widx])
+        gem_wind_newmenu[widx] := 0
+      ENDIF
+      -> Convert GEM tree to NewMenu
+      nm := gem_CreateMenusFromTree(tree)
+      IF nm <> 0
+        amiga_m := gem_CreateMenus(nm)
+        IF amiga_m <> 0
+          gem_LayoutMenus(amiga_m)
+          gem_SetMenuStrip(asWIN(gem_window_list[widx]), amiga_m)
+          gem_wind_amiga_menu[widx] := amiga_m
+          gem_wind_newmenu[widx] := nm
+          gem_wind_gem_menu_idx[widx] := menu_idx
+        ELSE
+          gem_FreeNewMenu(nm)
+        ENDIF
+      ENDIF
+    ENDIF
+    gem_menu_bar_visible := 1
+    gem_menu_active_app := gem_aes_id
   ELSE
+    -> Hide menus: detach from all windows
+    FOR i := 0 TO 15
+      IF gem_wind_amiga_menu[i] <> 0 AND gem_window_list[i] <> 0
+        gem_ClearMenuStrip(asWIN(gem_window_list[i]))
+      ENDIF
+      IF gem_wind_amiga_menu[i] <> 0
+        gem_FreeMenus(gem_wind_amiga_menu[i])
+        gem_wind_amiga_menu[i] := 0
+      ENDIF
+      IF gem_wind_newmenu[i] <> 0
+        gem_FreeNewMenu(gem_wind_newmenu[i])
+        gem_wind_newmenu[i] := 0
+      ENDIF
+      gem_wind_gem_menu_idx[i] := -1
+    ENDFOR
     gem_menu_bar_visible := 0
     gem_menu_active_app := 0
   ENDIF
   ctx[0] := 1
 ENDPROC
 
+-> menu_icheck(tree, item, check) - Check or uncheck a menu item
 PROC gem_menu_icheck()
-  DEF tree, item, check, i, idx
+  DEF tree, item, check, i, widx, item_num
   tree := ctx[3]
   item := ctx[4]
   check := ctx[5]
-  idx := -1
-  FOR i := 0 TO gem_menu_count - 1
-    IF gem_menu_tree[i] = tree
-      idx := i
-      i := gem_menu_count
+  -> Find window with this menu attached
+  widx := -1
+  FOR i := 0 TO 15
+    IF gem_wind_gem_menu_idx[i] >= 0
+      DEF midx
+      midx := gem_wind_gem_menu_idx[i]
+      IF gem_menu_tree[midx] = tree
+        widx := i
+        i := 16
+      ENDIF
     ENDIF
   ENDFOR
-  IF idx >= 0 AND item >= 0 AND item < 64
-    IF check
-      gem_menu_item_checked[idx] := gem_menu_item_checked[idx] OR gem_bit(item)
-    ELSE
-      gem_menu_item_checked[idx] := gem_menu_item_checked[idx] AND (65535 - gem_bit(item))
-    ENDIF
+  IF widx >= 0 AND gem_wind_amiga_menu[widx] <> 0 AND gem_window_list[widx] <> 0
+    -> item is the object index; we need to find its menu/item position
+    -> For now, encode as (menu_num << 8) | item_num based on tree walk
+    item_num := gem_tree_item_to_menu_pos(tree, item)
+    gem_SetMenuCheck(asWIN(gem_window_list[widx]), gem_wind_amiga_menu[widx], item_num, check)
   ENDIF
   ctx[0] := 1
 ENDPROC
 
+-> menu_ienable(tree, item, enable) - Enable or disable a menu item
 PROC gem_menu_ienable()
-  DEF tree, item, enable, i, idx
+  DEF tree, item, enable, i, widx, item_num
   tree := ctx[3]
   item := ctx[4]
   enable := ctx[5]
-  idx := -1
-  FOR i := 0 TO gem_menu_count - 1
-    IF gem_menu_tree[i] = tree
-      idx := i
-      i := gem_menu_count
+  widx := -1
+  FOR i := 0 TO 15
+    IF gem_wind_gem_menu_idx[i] >= 0
+      DEF midx
+      midx := gem_wind_gem_menu_idx[i]
+      IF gem_menu_tree[midx] = tree
+        widx := i
+        i := 16
+      ENDIF
     ENDIF
   ENDFOR
-  IF idx >= 0 AND item >= 0 AND item < 64
-    IF enable
-      gem_menu_item_enabled[idx] := gem_menu_item_enabled[idx] OR gem_bit(item)
-    ELSE
-      gem_menu_item_enabled[idx] := gem_menu_item_enabled[idx] AND (65535 - gem_bit(item))
-    ENDIF
+  IF widx >= 0 AND gem_wind_amiga_menu[widx] <> 0 AND gem_window_list[widx] <> 0
+    item_num := gem_tree_item_to_menu_pos(tree, item)
+    gem_SetMenuEnable(asWIN(gem_window_list[widx]), gem_wind_amiga_menu[widx], item_num, enable)
   ENDIF
   ctx[0] := 1
 ENDPROC
 
+-> menu_tnormal(tree, item, normal) - Set normal/inverted state of menu item
 PROC gem_menu_tnormal()
-  DEF tree, item, normal, i, idx
+  DEF tree, item, normal
   tree := ctx[3]
   item := ctx[4]
   normal := ctx[5]
-  idx := -1
-  FOR i := 0 TO gem_menu_count - 1
-    IF gem_menu_tree[i] = tree
-      idx := i
-      i := gem_menu_count
-    ENDIF
-  ENDFOR
-  IF idx >= 0 AND item >= 0 AND item < 64
-    IF normal = 0
-      gem_menu_item_normal[idx] := gem_menu_item_normal[idx] OR gem_bit(item)
-    ELSE
-      gem_menu_item_normal[idx] := gem_menu_item_normal[idx] AND (65535 - gem_bit(item))
-    ENDIF
-  ENDIF
+  -> On AmigaOS, menu item highlighting is managed by Intuition
+  -> after selection; this is typically a no-op in the emulator
   ctx[0] := 1
 ENDPROC
 
+-> menu_text(tree, item, text) - Change text of a menu item
 PROC gem_menu_text()
-  DEF tree, item, text_ptr, i, idx
+  DEF tree, item, text_ptr
   tree := ctx[3]
   item := ctx[4]
   text_ptr := ctx[5]
-  idx := -1
-  FOR i := 0 TO gem_menu_count - 1
-    IF gem_menu_tree[i] = tree
-      idx := i
-      i := gem_menu_count
-    ENDIF
-  ENDFOR
-  IF idx >= 0 AND item >= 0 AND item < 64
-    gem_menu_item_text[idx] := text_ptr
-  ENDIF
+  -> Text changes require rebuilding the NewMenu; stub for now
   ctx[0] := 1
 ENDPROC
 
+-> menu_register(pid, tree) - Register a menu tree for an application
 PROC gem_menu_register()
-  DEF pid, tree
+  DEF pid, tree, i
   pid := ctx[3]
   tree := ctx[4]
+  -> Check if already registered
+  FOR i := 0 TO gem_menu_count - 1
+    IF gem_menu_tree[i] = tree
+      ctx[0] := gem_menu_count
+      ENDPROC
+    ENDIF
+  ENDFOR
   IF gem_menu_count < 8
     gem_menu_tree[gem_menu_count] := tree
     gem_menu_owner[gem_menu_count] := pid
-    gem_menu_item_count[gem_menu_count] := 0
-    gem_menu_item_checked[gem_menu_count] := 0
-    gem_menu_item_enabled[gem_menu_count] := 0
-    gem_menu_item_normal[gem_menu_count] := 0
-    gem_menu_item_text[gem_menu_count] := 0
     gem_menu_count := gem_menu_count + 1
   ENDIF
   ctx[0] := gem_menu_count
 ENDPROC
 
+-> menu_popup() - Pop up a menu at a position
 PROC gem_menu_popup()
   DEF menu_id, x, y
   menu_id := ctx[3]
   x := ctx[4]
   y := ctx[5]
-  -> If there's a pending menu action, return it
-  IF gem_menu_pending_action = 1 AND gem_menu_pending_app = gem_aes_id
-    ctx[1] := gem_menu_pending_item
-    gem_menu_pending_action := 0
-    ctx[0] := 1
-  ELSE
-    -> No selection made - return 0 (cancelled)
-    ctx[1] := 0
-    ctx[0] := 0
-  ENDIF
+  ctx[1] := 0
+  ctx[0] := 0
 ENDPROC
 
 PROC gem_menu_attach()
@@ -2143,7 +2456,6 @@ PROC gem_menu_istart()
   pid := ctx[3]
   tree := ctx[4]
   item := ctx[5]
-  -> Mark that user is interacting with menu item
   ctx[0] := 1
 ENDPROC
 
@@ -2153,9 +2465,42 @@ PROC gem_menu_settings()
   tree := ctx[4]
   item := ctx[5]
   settings := ctx[6]
-  -> Store menu settings flags
   ctx[0] := 1
 ENDPROC
+
+
+-> ---------------------------------------------------------------------------
+-> gem_tree_item_to_menu_pos - Convert GEM object index to AmigaOS menu position
+-> Walks the GEM OBJECT tree to find the item's menu# and item# within that menu
+-> Returns (menunum << 8) | itemnum
+-> ---------------------------------------------------------------------------
+PROC gem_tree_item_to_menu_pos(tree:VALUE, obj_index:VALUE)
+  DEF result
+  NATIVE {
+    extern unsigned long gem_tree_item_to_menu_pos_result;
+    struct GEMObject { short next, head, tail; unsigned short flags, state, type; long spec; short x, y, w, h; };
+    struct GEMObject *objtree = (struct GEMObject *)tree;
+    int idx = (int)obj_index;
+    int menu_num = -1, item_num = 0, cur_item = 0, i;
+    /* walk tree: titles are menu_num increments, items count within each menu */
+    for (i = 0; objtree[i].type != 0; i++) {
+      if (objtree[i].type == 25) { /* G_TITLE */
+        menu_num++;
+        cur_item = 0;
+      } else if (objtree[i].type == 26) { /* G_STRING */
+        if (i == idx) {
+          item_num = cur_item;
+          break;
+        }
+        cur_item++;
+      }
+    }
+    if (menu_num < 0) menu_num = 0;
+    gem_tree_item_to_menu_pos_result = (menu_num << 8) | item_num;
+  } ENDNATIVE
+ENDPROC gem_tree_item_to_menu_pos_result
+
+DEF gem_tree_item_to_menu_pos_result
 
 
 -> ============================
@@ -2458,6 +2803,17 @@ PROC gem_wind_delete()
   idx := gem_wind_find_handle(handle)
   IF idx >= 0
     IF gem_window_list[idx] <> 0
+      -> Detach and free menus if this window had them
+      IF gem_wind_amiga_menu[idx] <> 0
+        gem_ClearMenuStrip(asWIN(gem_window_list[idx]))
+        gem_FreeMenus(gem_wind_amiga_menu[idx])
+        gem_wind_amiga_menu[idx] := 0
+      ENDIF
+      IF gem_wind_newmenu[idx] <> 0
+        gem_FreeNewMenu(gem_wind_newmenu[idx])
+        gem_wind_newmenu[idx] := 0
+      ENDIF
+      gem_wind_gem_menu_idx[idx] := -1
       gem_CloseWindow(asWIN(gem_window_list[idx]))
       gem_window_list[idx] := 0
     ENDIF
@@ -2767,17 +3123,9 @@ ENDPROC
 PROC gem_graf_watchbox()
   DEF tree, obj, instate, outstate
   tree := ctx[3]; obj := ctx[4]; instate := ctx[5]; outstate := ctx[6]
-  -> Simulate: if there's a pending menu/button action, act on it
-  IF gem_menu_pending_action = 1 AND gem_menu_pending_app = gem_aes_id
-    -> A menu item was selected, notify the form
-    gem_menu_pending_action := 0
-    ctx[1] := gem_menu_pending_item
-    ctx[0] := outstate  -> Object changed to outstate (was selected)
-  ELSE
-    -> No pending action, return the object index to simulate selection
-    ctx[1] := obj
-    ctx[0] := outstate
-  ENDIF
+  -> Simulate: return the object index to simulate selection
+  ctx[1] := obj
+  ctx[0] := outstate
 ENDPROC
 
 -> graf_slidebox() - Handle slider box movement
@@ -3912,10 +4260,13 @@ PROC main()
   gem_menu_count := 0
   gem_menu_bar_visible := 0
   gem_menu_active_app := 0
-  gem_menu_pending_action := 0
-  gem_menu_pending_item := 0
-  gem_menu_pending_tree := 0
-  gem_menu_pending_app := 0
+  -> Initialize per-window menu tracking
+  DEF wi
+  FOR wi := 0 TO 15
+    gem_wind_amiga_menu[wi] := 0
+    gem_wind_newmenu[wi] := 0
+    gem_wind_gem_menu_idx[wi] := -1
+  ENDFOR
   gem_form_active := -1
   gem_scrap_len := 0
   gem_msg_head := 0
