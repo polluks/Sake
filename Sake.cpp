@@ -947,7 +947,7 @@ BOOLEAN SemTryLock(void* sem) ;
 
 //Replacement for AmigaE's OstrCmp(), which (possibly erratically) seems to incorrectly think these two characters are the same:
 // "A" = $41 = 065 = %01000001
-// "«" = $AB = 171 = %10101011
+// "ï¿½" = $AB = 171 = %10101011
 
 signed char OstrCmp(char* string1, char* string2, long max=ALL, long string1Offset=0, long string2Offset=0) ;
 signed char OstrCmpNoCase(char* string1, char* string2, long max=ALL, long string1Offset=0, long string2Offset=0) ;
@@ -2582,6 +2582,13 @@ extern long gem_obj_tree[8]; // object tree pointers
 // Form state
 extern long gem_form_active; // handle of active form dialog (-1 = none)
 
+// Radio button gadget tracking
+extern long gem_radio_gad[32]; // gadtools gadget pointers (up to 32 radio buttons)
+extern long gem_radio_obj[32]; // GEM object index for each gadget
+extern long gem_radio_count; // number of active radio gadgets
+extern long gem_radio_tree; // tree pointer for current radio group
+extern long gem_radio_win; // window gadgets are attached to
+
 // Clipboard state
 extern char gem_scrap_buffer[1024];
 extern long gem_scrap_len;
@@ -2957,6 +2964,13 @@ long gem_obj_tree[8]; // object tree pointers
 
 // Form state
 long gem_form_active; // handle of active form dialog (-1 = none)
+
+// Radio button gadget tracking
+long gem_radio_gad[32]; // gadtools gadget pointers (up to 32 radio buttons)
+long gem_radio_obj[32]; // GEM object index for each gadget
+long gem_radio_count; // number of active radio gadgets
+long gem_radio_tree; // tree pointer for current radio group
+long gem_radio_win; // window gadgets are attached to
 
 // Clipboard state
 char gem_scrap_buffer[1024];
@@ -5061,10 +5075,24 @@ void gem_objc_draw() {
 
 void gem_objc_find() {
   long tree, obj, depth, mx, my;
+  long found = 0;
   tree = ctx[3]; obj = ctx[4]; depth = ctx[5];
   mx = ctx[6]; my = ctx[7];
-  // Return top-most object (0 = root)
-  ctx[0] = 0;
+  if (tree != 0) {
+    struct GEMObject { short next, head, tail; unsigned short flags, state, type; long spec; short x, y, w, h; };
+    struct GEMObject *objtree = (struct GEMObject *)tree;
+    int start = (int)obj;
+    int i;
+    for (i = start; objtree[i].type != 0; i++) {
+      if (objtree[i].type == 21 || objtree[i].type == 22 || objtree[i].type == 6) {
+        if (mx >= objtree[i].x && mx < objtree[i].x + objtree[i].w &&
+            my >= objtree[i].y && my < objtree[i].y + objtree[i].h) {
+          found = i;
+        }
+      }
+    }
+  }
+  ctx[0] = found;
 	return ;
 }
 
@@ -5090,6 +5118,14 @@ void gem_objc_edit() {
 }
 
 void gem_objc_change() {
+  long tree, obj, depth, new_state;
+  tree = ctx[3]; obj = ctx[4]; depth = ctx[5]; new_state = ctx[9];
+  if (tree != 0 && obj >= 0) {
+    struct GEMObject { short next, head, tail; unsigned short flags, state, type; long spec; short x, y, w, h; };
+    struct GEMObject *objtree = (struct GEMObject *)tree;
+    int idx = (int)obj;
+    objtree[idx].state = (unsigned short)((int)new_state & 0xFFFF);
+  }
   ctx[0] = 1;
 	return ;
 }
@@ -5105,12 +5141,139 @@ void gem_objc_type() {
 // ============================
 
 void gem_form_do() {
-  long tree, startobj;
+  long tree, startobj, obj_ptr, key;
+  long form_x, form_y, form_w, form_h;
+  long win_idx, win_h;
+  long done, event_obj, i;
   tree = ctx[3]; startobj = ctx[4];
   gem_form_active = tree;
-  // Simulate: return the default button (startobj or root)
+  if (tree == 0) {
+    gem_form_active = -1;
+    ctx[0] = startobj;
+    return;
+  }
+  obj_ptr = tree;
+  form_x = 0; form_y = 0; form_w = 200; form_h = 100;
+  {
+    unsigned char *obj = (unsigned char *)obj_ptr;
+    short ot = *(short *)(obj + 6);
+    if (ot >= 0 && ot <= 3) {
+      form_x = *(short *)(obj + 12);
+      form_y = *(short *)(obj + 14);
+      form_w = *(short *)(obj + 16);
+      form_h = *(short *)(obj + 18);
+    }
+  }
+  win_h = 0;
+  for (i = 0; i < 16; i++) {
+    if (win_h == 0 && gem_window_list[i] != 0 && gem_wind_state[i] == 1)
+      win_h = gem_wind_handle[i];
+  }
+  gem_radio_count = 0;
+  if (win_h != 0) {
+    win_idx = gem_wind_find_handle(win_h);
+    if (win_idx >= 0) {
+      // Create radio button gadgets from the tree
+      {
+        extern unsigned long gadtools_base;
+        struct GEMObject { short next, head, tail; unsigned short flags, state, type; long spec; short x, y, w, h; };
+        struct GEMObject *objtree = (struct GEMObject *)tree;
+        struct Window *winp = (struct Window *)gem_window_list[win_idx];
+        struct Gadget *last_gad = NULL;
+        struct NewGadget ng;
+        int gi, count = 0;
+        if (gadtools_base && winp) {
+          for (gi = 0; objtree[gi].type != 0 && count < 32; gi++) {
+            if (objtree[gi].type == 21) { /* G_RBUTTON */
+              ng.ng_LeftEdge  = objtree[gi].x;
+              ng.ng_TopEdge   = objtree[gi].y;
+              ng.ng_Width     = objtree[gi].w;
+              ng.ng_Height    = objtree[gi].h;
+              ng.ng_VisualInfo = GetVisualInfo(winp->WScreen, NULL);
+              ng.ng_TextAttr   = &winp->WScreen->RastPort->Font->tf_Attr;
+              ng.ng_Flags      = 0;
+              ng.ng_GadgetText = (STRPTR)objtree[gi].spec;
+              ng.ng_GadgetID   = gi;
+              ng.ng_UserData   = (APTR)0;
+              gem_radio_gad[count] = (long)CreateGadgetA(RADIO_KIND, last_gad, &ng, NULL);
+              if (gem_radio_gad[count]) {
+                gem_radio_obj[count] = gi;
+                if (objtree[gi].state & 1) {
+                  GT_SetGadgetAttrs((struct Gadget *)gem_radio_gad[count], winp, NULL,
+                    GTCB_Checked, 1, TAG_DONE);
+                }
+                last_gad = (struct Gadget *)gem_radio_gad[count];
+                count++;
+              }
+            }
+          }
+          gem_radio_count = count;
+          if (count > 0) {
+            AddGList(winp, (struct Gadget *)gem_radio_gad[0], 0, -1, NULL);
+            RefreshGList((struct Gadget *)gem_radio_gad[0], winp, NULL, -1);
+            GT_RefreshWindow(winp, NULL);
+          }
+        }
+      }
+    }
+  }
+  done = 0;
+  event_obj = startobj;
+  while (done == 0) {
+    if (win_h != 0) {
+      win_idx = gem_wind_find_handle(win_h);
+      if (win_idx >= 0 && gem_window_list[win_idx] != 0) {
+        struct Window *win = (struct Window *)gem_window_list[win_idx];
+        struct IntuiMessage *msg;
+        if (win && win->UserPort) {
+          while ((msg = (struct IntuiMessage *)GetMsg(win->UserPort))) {
+            if (msg->Class == IDCMP_GADGETUP || msg->Class == IDCMP_GADGETDOWN) {
+              struct Gadget *gad = (struct Gadget *)msg->IAddress;
+              { int ri;
+                for (ri = 0; ri < gem_radio_count; ri++) {
+                  if ((long)gem_radio_gad[ri] == (long)gad) {
+                    event_obj = gem_radio_obj[ri];
+                    done = 1;
+                    break;
+                  }
+                }
+              }
+            } else if (msg->Class == IDCMP_CLOSEWINDOW) {
+              event_obj = startobj;
+              done = 1;
+            }
+            ReplyMsg((struct Message *)msg);
+          }
+        }
+      }
+    }
+    if (done == 0 && WaitForChar(Input(), 0)) {
+      key = 0;
+      Read(Input(), &key, 1);
+      if (key == 10 || key == 13) {
+        event_obj = startobj;
+        done = 1;
+      }
+    }
+    if (done == 0) Delay(1);
+  }
+  // Remove radio gadgets
+  if (gem_radio_count > 0) {
+    win_idx = gem_wind_find_handle(win_h);
+    if (win_idx >= 0) {
+      struct Window *w = (struct Window *)gem_window_list[win_idx];
+      if (w) RemoveGList(w, (struct Gadget *)gem_radio_gad[0], gem_radio_count);
+    }
+    for (i = 0; i < gem_radio_count; i++) {
+      if (gem_radio_gad[i]) {
+        FreeGadgets((struct Gadget *)gem_radio_gad[i]);
+        gem_radio_gad[i] = 0;
+      }
+    }
+    gem_radio_count = 0;
+  }
   gem_form_active = -1;
-  ctx[0] = startobj;
+  ctx[0] = event_obj;
 	return ;
 }
 
@@ -5156,8 +5319,31 @@ void gem_form_keybd() {
 }
 
 void gem_form_button() {
-  // Return object index or 0
-  ctx[0] = 0;
+  long tree, obj, depth, next_obj;
+  tree = ctx[3]; obj = ctx[4]; depth = ctx[5];
+  next_obj = 0;
+  // If this is a radio button (type 21), handle mutual exclusion
+  if (tree != 0 && obj >= 0) {
+    struct GEMObject { short next, head, tail; unsigned short flags, state, type; long spec; short x, y, w, h; };
+    struct GEMObject *objtree = (struct GEMObject *)tree;
+    int idx = (int)obj;
+    if (objtree[idx].type == 21) { /* G_RBUTTON */
+      int i;
+      for (i = 0; objtree[i].type != 0; i++) {
+        if (objtree[i].type == 21) {
+          objtree[i].state &= ~1; /* clear SELECTED */
+        }
+      }
+      objtree[idx].state |= 1;
+      next_obj = idx;
+    } else if (objtree[idx].type == 22) { /* G_CHECKBOX: toggle */
+      objtree[idx].state ^= 1;
+      next_obj = idx;
+    } else {
+      next_obj = idx;
+    }
+  }
+  ctx[0] = next_obj;
 	return ;
 }
 

@@ -1391,6 +1391,14 @@ CONST WM_FULLED = 13, WM_ARROWED = 14, WM_HSLID = 15
 CONST WM_VSLID = 16, WM_SIZED = 17, WM_MOVED = 18
 CONST WM_UNTOPPED = 19, WM_ONTOP = 20
 
+-> GEM object types (from objc.h)
+CONST G_BOX = 0, G_TEXT = 1, G_BOXTEXT = 2, G_IMAGE = 3
+CONST G_USERDEF = 4, G_IBOX = 5, G_BUTTON = 6, G_BOXCHAR = 7
+CONST G_STRING = 8, G_FTEXT = 9, G_FBOXTEXT = 10, G_ICON = 11
+CONST G_TITLE = 25, G_MENU = 26
+CONST G_RBUTTON = 21, G_CHECKBOX = 22
+CONST G_SELECTED = 1
+
 -> Max tracked resources
 CONST MAX_WINDOWS = 16, MAX_MENUS = 8, MAX_OBJECTS = 256
 CONST MAX_MESSAGES = 64, MAX_APPS = 8
@@ -1440,6 +1448,14 @@ DEF gem_obj_tree[8]:ARRAY OF VALUE -> object tree pointers
 
 -> Form state
 DEF gem_form_active -> handle of active form dialog (-1 = none)
+
+-> Radio button gadget tracking
+-> Maps GEM object index to gadtools gadget pointer per form tree
+DEF gem_radio_gad[32]:ARRAY OF VALUE   -> gadtools gadget pointers (up to 32 radio buttons)
+DEF gem_radio_obj[32]:ARRAY OF VALUE   -> GEM object index for each gadget
+DEF gem_radio_count                    -> number of active radio gadgets
+DEF gem_radio_tree                     -> tree pointer for current radio group
+DEF gem_radio_win                      -> window gadgets are attached to
 
 -> Clipboard state
 DEF gem_scrap_buffer[1024]:ARRAY OF CHAR
@@ -1619,6 +1635,197 @@ PROC gem_DecodeMenuCode(code:VALUE, menunum:VALUE, itemnum:VALUE) IS NATIVE {
   *((short *)itemnum) = c & 0xFF;
   return 1;
 } ENDNATIVE !!INT
+
+-> ---------------------------------------------------------------------------
+-> Radio button gadget creation via gadtools
+-> Scans a GEM object tree for type 21 (G_RBUTTON) objects and creates
+-> gadtools RADIO_KIND gadgets.  Each group of consecutive radio buttons
+-> becomes one gadtools radio group (gadtools manages mutual exclusion).
+-> Returns number of gadgets created.
+-> ---------------------------------------------------------------------------
+PROC gem_CreateRadioGadgets(tree:VALUE, win:VALUE) IS NATIVE {
+  extern unsigned long gadtools_base;
+  extern long gem_radio_gad[32];
+  extern long gem_radio_obj[32];
+  extern long gem_radio_count;
+  extern long gem_radio_tree;
+  extern long gem_radio_win;
+  struct GEMObject { short next, head, tail; unsigned short flags, state, type; long spec; short x, y, w, h; };
+  struct GEMObject *objtree = (struct GEMObject *)tree;
+  struct Window *winp = (struct Window *)win;
+  struct Gadget *last_gad = NULL;
+  struct NewGadget ng;
+  int i, count = 0;
+  int in_radio_group = 0;
+  if (!gadtools_base || !winp) return 0;
+  gem_radio_count = 0;
+  gem_radio_tree = (long)tree;
+  gem_radio_win = (long)win;
+  for (i = 0; objtree[i].type != 0 && count < 32; i++) {
+    if (objtree[i].type == 21) { /* G_RBUTTON */
+      ng.ng_LeftEdge  = objtree[i].x;
+      ng.ng_TopEdge   = objtree[i].y;
+      ng.ng_Width     = objtree[i].w;
+      ng.ng_Height    = objtree[i].h;
+      ng.ng_VisualInfo = GetVisualInfo(winp->WScreen, NULL);
+      ng.ng_TextAttr   = &winp->WScreen->RastPort->Font->tf_Attr;
+      ng.ng_Flags      = 0;
+      ng.ng_GadgetText = (STRPTR)objtree[i].spec;
+      ng.ng_GadgetID   = i;
+      ng.ng_UserData   = (APTR)0;
+      gem_radio_gad[count] = (long)CreateGadgetA(RADIO_KIND, last_gad, &ng, NULL);
+      if (gem_radio_gad[count]) {
+        gem_radio_obj[count] = i;
+        /* If GEM object has SELECTED bit set, select this gadget */
+        if (objtree[i].state & 1) {
+          GT_SetGadgetAttrs((struct Gadget *)gem_radio_gad[count], winp, NULL,
+            GTCB_Checked, 1, TAG_DONE);
+        }
+        last_gad = (struct Gadget *)gem_radio_gad[count];
+        count++;
+        in_radio_group = 1;
+      }
+    } else {
+      in_radio_group = 0;
+    }
+  }
+  gem_radio_count = count;
+  /* Add gadget list to window */
+  if (count > 0) {
+    AddGList(winp, (struct Gadget *)gem_radio_gad[0], 0, -1, NULL);
+    RefreshGList((struct Gadget *)gem_radio_gad[0], winp, NULL, -1);
+    GT_RefreshWindow(winp, NULL);
+  }
+  return count;
+} ENDNATIVE !!VALUE
+
+-> ---------------------------------------------------------------------------
+-> Remove radio gadgets from a window and free them
+-> ---------------------------------------------------------------------------
+PROC gem_FreeRadioGadgets() IS NATIVE {
+  extern unsigned long gadtools_base;
+  extern long gem_radio_gad[32];
+  extern long gem_radio_count;
+  extern long gem_radio_win;
+  struct Window *winp = (struct Window *)gem_radio_win;
+  int i;
+  if (!gem_radio_count) return;
+  if (winp) {
+    RemoveGList(winp, (struct Gadget *)gem_radio_gad[0], gem_radio_count);
+  }
+  for (i = 0; i < gem_radio_count; i++) {
+    if (gem_radio_gad[i]) {
+      FreeGadgets((struct Gadget *)gem_radio_gad[i]);
+      gem_radio_gad[i] = 0;
+    }
+  }
+  gem_radio_count = 0;
+} ENDNATIVE
+
+-> ---------------------------------------------------------------------------
+-> Get the GEM object index of the selected radio button in a group
+-> Returns -1 if none selected
+-> ---------------------------------------------------------------------------
+PROC gem_GetRadioSelection() IS NATIVE {
+  extern long gem_radio_gad[32];
+  extern long gem_radio_obj[32];
+  extern long gem_radio_count;
+  extern long gem_radio_win;
+  struct Window *winp = (struct Window *)gem_radio_win;
+  int i;
+  for (i = 0; i < gem_radio_count; i++) {
+    if (gem_radio_gad[i]) {
+      struct TagItem tags[2];
+      long checked = 0;
+      tags[0].ti_Tag = GTCB_Checked;
+      tags[0].ti_Data = 0;
+      tags[1].ti_Tag = TAG_DONE;
+      tags[1].ti_Data = 0;
+      GT_GetGadgetAttrs((struct Gadget *)gem_radio_gad[i], winp, NULL, tags);
+      checked = tags[0].ti_Data;
+      if (checked) return gem_radio_obj[i];
+    }
+  }
+  return -1;
+} ENDNATIVE !!INT
+
+-> ---------------------------------------------------------------------------
+-> Set a radio button's selected state
+-> obj_index = GEM object index, selected = 1 to select, 0 to deselect
+-> ---------------------------------------------------------------------------
+PROC gem_SetRadioState(obj_index:VALUE, selected:VALUE) IS NATIVE {
+  extern long gem_radio_gad[32];
+  extern long gem_radio_obj[32];
+  extern long gem_radio_count;
+  extern long gem_radio_win;
+  struct Window *winp = (struct Window *)gem_radio_win;
+  int i;
+  for (i = 0; i < gem_radio_count; i++) {
+    if (gem_radio_gad[i] && gem_radio_obj[i] == (long)obj_index) {
+      GT_SetGadgetAttrs((struct Gadget *)gem_radio_gad[i], winp, NULL,
+        GTCB_Checked, (long)selected, TAG_DONE);
+      return;
+    }
+  }
+} ENDNATIVE
+
+-> ---------------------------------------------------------------------------
+-> Handle a radio gadget IDCMP event - returns the GEM object index
+-> of the clicked radio button, or -1 if not a radio event
+-> ---------------------------------------------------------------------------
+PROC gem_HandleRadioEvent(code:VALUE) IS NATIVE {
+  extern long gem_radio_gad[32];
+  extern long gem_radio_obj[32];
+  extern long gem_radio_count;
+  struct Gadget *gad = (struct Gadget *)((long)code);
+  int i;
+  for (i = 0; i < gem_radio_count; i++) {
+    if ((long)gem_radio_gad[i] == (long)gad) {
+      return gem_radio_obj[i];
+    }
+  }
+  return -1;
+} ENDNATIVE !!INT
+
+-> ---------------------------------------------------------------------------
+-> Scan a GEM object tree and update GEM state bits from gadtools gadget
+-> selection.  Deselects all other radio buttons in each group.
+-> ---------------------------------------------------------------------------
+PROC gem_SyncRadioToGEM(tree:VALUE) IS NATIVE {
+  extern long gem_radio_gad[32];
+  extern long gem_radio_obj[32];
+  extern long gem_radio_count;
+  extern long gem_radio_win;
+  struct GEMObject { short next, head, tail; unsigned short flags, state, type; long spec; short x, y, w, h; };
+  struct GEMObject *objtree = (struct GEMObject *)tree;
+  struct Window *winp = (struct Window *)gem_radio_win;
+  int i, selected_obj = -1;
+  long checked;
+  struct TagItem tags[2];
+  /* First pass: find which radio button is currently selected in gadtools */
+  for (i = 0; i < gem_radio_count; i++) {
+    if (gem_radio_gad[i]) {
+      tags[0].ti_Tag = GTCB_Checked;
+      tags[0].ti_Data = 0;
+      tags[1].ti_Tag = TAG_DONE;
+      tags[1].ti_Data = 0;
+      GT_GetGadgetAttrs((struct Gadget *)gem_radio_gad[i], winp, NULL, tags);
+      checked = tags[0].ti_Data;
+      if (checked) selected_obj = gem_radio_obj[i];
+    }
+  }
+  /* Second pass: clear SELECTED bit on all radio objects, set it on the winner */
+  for (i = 0; i < gem_radio_count; i++) {
+    int obj_idx = gem_radio_obj[i];
+    if (obj_idx >= 0) {
+      if (obj_idx == selected_obj)
+        objtree[obj_idx].state |= 1;   /* set SELECTED */
+      else
+        objtree[obj_idx].state &= ~1;  /* clear SELECTED */
+    }
+  }
+} ENDNATIVE
+
 PROC gem_TextFontInit16(f:PTR TO textfont) IS NATIVE { struct TextFont *tf = (struct TextFont *)gem_font_8x16; tf->tf_Message.mn_ReplyPort=NULL; tf->tf_Message.mn_Length=sizeof(struct TextFont); tf->tf_YSize=16; tf->tf_Style=0; tf->tf_Flags=0; tf->tf_XSize=8; tf->tf_Baseline=13; tf->tf_BoldSmear=0; tf->tf_Accessors=0; tf->tf_LoChar=0; tf->tf_HiChar=255; tf->tf_CharData=(APTR)gem_font_data_8x16; tf->tf_Modulo=8; tf->tf_CharLoc=(APTR)gem_font_loc_8x16; tf->tf_CharSpace=(APTR)gem_font_width_8x16; tf->tf_CharKern=NULL; } ENDNATIVE
 PROC gem_TextFontInit8(f:PTR TO textfont) IS NATIVE { struct TextFont *tf = (struct TextFont *)gem_font_8x8; tf->tf_Message.mn_ReplyPort=NULL; tf->tf_Message.mn_Length=sizeof(struct TextFont); tf->tf_YSize=8; tf->tf_Style=0; tf->tf_Flags=0; tf->tf_XSize=8; tf->tf_Baseline=7; tf->tf_BoldSmear=0; tf->tf_Accessors=0; tf->tf_LoChar=0; tf->tf_HiChar=255; tf->tf_CharData=(APTR)gem_font_data_8x8; tf->tf_Modulo=8; tf->tf_CharLoc=(APTR)gem_font_loc_8x8; tf->tf_CharSpace=(APTR)gem_font_width_8x8; tf->tf_CharKern=NULL; } ENDNATIVE
 
@@ -2726,7 +2933,10 @@ PROC gem_objc_draw()
   obj := ctx[4]
   depth := ctx[5]
   xc := ctx[6]; yc := ctx[7]; wc := ctx[8]; hc := ctx[9]
-  -> Typically triggers object redraw
+  -> Draw the object tree (or sub-tree) on the first open window
+  IF tree <> 0
+    gem_draw_tree(tree, obj, depth)
+  ENDIF
   ctx[0] := 1
 ENDPROC
 
@@ -2734,8 +2944,168 @@ PROC gem_objc_find()
   DEF tree, obj, depth, mx, my
   tree := ctx[3]; obj := ctx[4]; depth := ctx[5]
   mx := ctx[6]; my := ctx[7]
-  -> Return top-most object (0 = root)
-  ctx[0] := 0
+  -> Walk the tree to find the top-most object containing (mx, my)
+  IF tree <> 0
+    NATIVE {
+      struct GEMObject { short next, head, tail; unsigned short flags, state, type; long spec; short x, y, w, h; };
+      struct GEMObject *objtree = (struct GEMObject *)tree;
+      int start = (int)obj;
+      int found = 0, i;
+      /* Scan from start to end for clickable objects containing the point */
+      for (i = start; objtree[i].type != 0; i++) {
+        if (objtree[i].type == 21 || objtree[i].type == 22 || objtree[i].type == 6) {
+          if (mx >= objtree[i].x && mx < objtree[i].x + objtree[i].w &&
+              my >= objtree[i].y && my < objtree[i].y + objtree[i].h) {
+            found = i;
+          }
+        }
+      }
+      gem_objc_find_result = found;
+    } ENDNATIVE
+    ctx[0] := gem_objc_find_result
+  ELSE
+    ctx[0] := 0
+  ENDIF
+ENDPROC
+
+DEF gem_objc_find_result
+
+-> ---------------------------------------------------------------------------
+-> Draw a GEM object tree on the first open window
+-> Walks the tree and draws boxes, radio buttons, checkboxes, and strings
+-> ---------------------------------------------------------------------------
+PROC gem_draw_tree(tree:VALUE, root_obj:VALUE, max_depth:VALUE)
+  DEF i
+  DEF win_ptr
+  win_ptr := 0
+  FOR i := 0 TO MAX_WINDOWS - 1
+    IF win_ptr = 0 AND gem_window_list[i] <> 0 AND gem_wind_state[i] = WS_OPEN
+      win_ptr := gem_window_list[i]
+    ENDIF
+  ENDFOR
+  IF win_ptr = 0 THEN RETURN
+  NATIVE {
+    struct GEMObject { short next, head, tail; unsigned short flags, state, type; long spec; short x, y, w, h; };
+    struct GEMObject *objtree = (struct GEMObject *)tree;
+    struct Window *win = (struct Window *)win_ptr;
+    struct RastPort *rp;
+    int start = (int)root_obj;
+    int i;
+    if (!win) return;
+    rp = win->RPort;
+    SetAPen(rp, 1);
+    SetDrMd(rp, JAM1);
+    for (i = start; objtree[i].type != 0; i++) {
+      short ox = objtree[i].x;
+      short oy = objtree[i].y;
+      short ow = objtree[i].w;
+      short oh = objtree[i].h;
+      switch (objtree[i].type) {
+        case 0: /* G_BOX */
+        case 5: /* G_IBOX */
+          SetAPen(rp, 0);
+          RectFill(rp, ox, oy, ox + ow - 1, oy + oh - 1);
+          SetAPen(rp, 1);
+          Move(rp, ox, oy);
+          Draw(rp, ox + ow - 1, oy);
+          Draw(rp, ox + ow - 1, oy + oh - 1);
+          Draw(rp, ox, oy + oh - 1);
+          Draw(rp, ox, oy);
+          break;
+        case 21: /* G_RBUTTON */
+          {
+            short cx = ox + 6;
+            short cy = oy + oh / 2;
+            short r = 5;
+            int sel = (objtree[i].state & 1);
+            /* Draw circle outline */
+            SetAPen(rp, 1);
+            Move(rp, cx + r, cy);
+            {
+              int angle;
+              for (angle = 0; angle <= 360; angle += 15) {
+                double rad = angle * 3.14159265 / 180.0;
+                short px = cx + (int)(r * cos(rad));
+                short py = cy + (int)(r * sin(rad));
+                if (angle == 0) Move(rp, px, py);
+                else Draw(rp, px, py);
+              }
+            }
+            /* Fill if selected */
+            if (sel) {
+              SetAPen(rp, 1);
+              RectFill(rp, cx - r/2, cy - r/2, cx + r/2, cy + r/2);
+            }
+            /* Draw label text */
+            if (objtree[i].spec) {
+              SetAPen(rp, 1);
+              Move(rp, ox + 16, cy + 4);
+              Text(rp, (STRPTR)objtree[i].spec, strlen((STRPTR)objtree[i].spec));
+            }
+          }
+          break;
+        case 22: /* G_CHECKBOX */
+          {
+            short bx = ox;
+            short by = oy + (oh - 10) / 2;
+            short bsz = 10;
+            int sel = (objtree[i].state & 1);
+            /* Draw checkbox square */
+            SetAPen(rp, 1);
+            Move(rp, bx, by);
+            Draw(rp, bx + bsz, by);
+            Draw(rp, bx + bsz, by + bsz);
+            Draw(rp, bx, by + bsz);
+            Draw(rp, bx, by);
+            /* If selected, draw checkmark */
+            if (sel) {
+              Move(rp, bx + 2, by + 5);
+              Draw(rp, bx + 4, by + 7);
+              Draw(rp, bx + 8, by + 2);
+            }
+            /* Draw label text */
+            if (objtree[i].spec) {
+              SetAPen(rp, 1);
+              Move(rp, ox + 14, by + 8);
+              Text(rp, (STRPTR)objtree[i].spec, strlen((STRPTR)objtree[i].spec));
+            }
+          }
+          break;
+        case 6: /* G_BUTTON */
+          {
+            int sel = (objtree[i].state & 1);
+            /* Draw button rectangle */
+            SetAPen(rp, sel ? 1 : 0);
+            RectFill(rp, ox, oy, ox + ow - 1, oy + oh - 1);
+            SetAPen(rp, 1);
+            Move(rp, ox, oy);
+            Draw(rp, ox + ow - 1, oy);
+            Draw(rp, ox + ow - 1, oy + oh - 1);
+            Draw(rp, ox, oy + oh - 1);
+            Draw(rp, ox, oy);
+            /* Draw label centered */
+            if (objtree[i].spec) {
+              int len = strlen((STRPTR)objtree[i].spec);
+              int tx = ox + (ow - len * 8) / 2;
+              int ty = oy + (oh + 8) / 2;
+              SetAPen(rp, sel ? 0 : 1);
+              Move(rp, tx, ty);
+              Text(rp, (STRPTR)objtree[i].spec, len);
+            }
+          }
+          break;
+        case 8: /* G_STRING */
+          if (objtree[i].spec) {
+            SetAPen(rp, 1);
+            Move(rp, ox + 2, oy + oh - 3);
+            Text(rp, (STRPTR)objtree[i].spec, strlen((STRPTR)objtree[i].spec));
+          }
+          break;
+        default:
+          break;
+      }
+    }
+  } ENDNATIVE
 ENDPROC
 
 PROC gem_objc_offset()
@@ -2757,6 +3127,17 @@ PROC gem_objc_edit()
 ENDPROC
 
 PROC gem_objc_change()
+  DEF tree, obj, depth, new_state
+  tree := ctx[3]; obj := ctx[4]; depth := ctx[5]; new_state := ctx[9]
+  -> Update the state field of the object
+  IF tree <> 0 AND obj >= 0
+    NATIVE {
+      struct GEMObject { short next, head, tail; unsigned short flags, state, type; long spec; short x, y, w, h; };
+      struct GEMObject *objtree = (struct GEMObject *)tree;
+      int idx = (int)obj;
+      objtree[idx].state = (unsigned short)((int)new_state & 0xFFFF);
+    } ENDNATIVE
+  ENDIF
   ctx[0] := 1
 ENDPROC
 
@@ -2771,6 +3152,9 @@ ENDPROC
 
 PROC gem_form_do()
   DEF tree, startobj, obj_ptr, key
+  DEF form_x, form_y, form_w, form_h
+  DEF win_idx, win_h
+  DEF done, event_obj, i
   tree := ctx[3]; startobj := ctx[4]
   gem_form_active := tree
   -> If no tree, return immediately
@@ -2779,36 +3163,165 @@ PROC gem_form_do()
     ctx[0] := startobj
     RETURN
   ENDIF
-  -> Draw the form
+  -> Read form dimensions from root object (type G_BOX = 0)
   obj_ptr := tree
+  form_x := 0; form_y := 0; form_w := 200; form_h := 100
   NATIVE {
     unsigned char *obj = (unsigned char *)obj_ptr;
-    short x = 0, y = 0, w, h, ot;
-    ot = *(short *)(obj + 6);
+    short ot = *(short *)(obj + 6);
     if (ot >= 0 && ot <= 3) {
-      x = *(short *)(obj + 12);
-      y = *(short *)(obj + 14);
-      w = *(short *)(obj + 16);
-      h = *(short *)(obj + 18);
+      form_x = *(short *)(obj + 12);
+      form_y = *(short *)(obj + 14);
+      form_w = *(short *)(obj + 16);
+      form_h = *(short *)(obj + 18);
     }
   } ENDNATIVE
-  -> Wait for a key press or mouse click
-  -> For now, check console for Enter key
-  IF WaitForChar(Input(), 0)
-    -> Key available, consume it
-    key := 0
-    Read(Input(), key, 1)
-    -> If Enter, return default button
-    IF key = 10 OR key = 13
-      gem_form_active := -1
-      ctx[0] := startobj
-      RETURN
+  -> Find or create a window for the form
+  -> Look for an existing open window, or use a temporary one
+  win_h := 0
+  FOR i := 0 TO MAX_WINDOWS - 1
+    IF win_h = 0 AND gem_window_list[i] <> 0 AND gem_wind_state[i] = WS_OPEN
+      win_h := gem_wind_handle[i]
+    ENDIF
+  ENDFOR
+  -> If no window available, create a temporary one for the form
+  IF win_h = 0
+    gem_wind_alloc()
+    win_idx := gem_wind_find_handle(ctx[0])
+    IF win_idx >= 0
+      gem_wind_kind[win_idx] := WIN_MOVER OR WIN_CLOSER
+      gem_wind_x[win_idx] := form_x
+      gem_wind_y[win_idx] := form_y
+      gem_wind_w[win_idx] := form_w
+      gem_wind_h[win_idx] := form_h
+      gem_wind_work_x[win_idx] := form_x + 4
+      gem_wind_work_y[win_idx] := form_y + 30
+      gem_wind_work_w[win_idx] := form_w - 8
+      gem_wind_work_h[win_idx] := form_h - 34
+      gem_wind_full_x[win_idx] := form_x
+      gem_wind_full_y[win_idx] := form_y
+      gem_wind_full_w[win_idx] := form_w
+      gem_wind_full_h[win_idx] := form_h
+      NATIVE {
+        struct Window *w;
+        struct NewWindow nw;
+        long flags = WFLG_SMART_REFRESH | WFLG_ACTIVATE | WFLG_GIMMEZEROZERO | WFLG_CLOSEGADGET | WFLG_DRAGBAR;
+        long idcmp = IDCMP_CLOSEWINDOW | IDCMP_REFRESHWINDOW | IDCMP_MOUSEBUTTONS | IDCMP_MOUSEMOVE | IDCMP_GADGETUP | IDCMP_GADGETDOWN;
+        nw.LeftEdge = form_x; nw.TopEdge = form_y;
+        nw.Width = form_w; nw.Height = form_h;
+        nw.DetailPen = 0; nw.BlockPen = 1;
+        nw.Title = "Form";
+        nw.Flags = flags; nw.IDCMPFlags = idcmp;
+        nw.Type = WBENCHSCREEN; nw.FirstGadget = NULL;
+        nw.CheckMark = NULL; nw.Screen = NULL; nw.BitMap = NULL;
+        nw.MinWidth = 50; nw.MinHeight = 30;
+        nw.MaxWidth = 2048; nw.MaxHeight = 2048;
+        w = OpenWindow(&nw);
+        gem_window_list[win_idx] = (long)w;
+        if (w) {
+          gem_wind_state[win_idx] = 1;
+          win_h = gem_wind_handle[win_idx];
+        }
+      } ENDNATIVE
     ENDIF
   ENDIF
-  -> Return default button (startobj) so form exits immediately
-  -> For a proper implementation, we'd loop waiting for events
+  -> Create radio button gadgets from the tree
+  gem_radio_count := 0
+  IF win_h <> 0
+    win_idx := gem_wind_find_handle(win_h)
+    IF win_idx >= 0
+      gem_CreateRadioGadgets(tree, gem_window_list[win_idx])
+    ENDIF
+  ENDIF
+  -> Event loop: wait for a button click or key press
+  done := 0
+  event_obj := startobj
+  WHILE done = 0
+    -> Check for IDCMP events if we have a window
+    IF win_h <> 0
+      win_idx := gem_wind_find_handle(win_h)
+      IF win_idx >= 0 AND gem_window_list[win_idx] <> 0
+        NATIVE {
+          struct Window *win = (struct Window *)gem_window_list[win_idx];
+          struct IntuiMessage *msg;
+          if (win && win->UserPort) {
+            while ((msg = (struct IntuiMessage *)GetMsg(win->UserPort))) {
+              if (msg->Class == IDCMP_GADGETUP || msg->Class == IDCMP_GADGETDOWN) {
+                struct Gadget *gad = (struct Gadget *)msg->IAddress;
+                /* Find which radio button was clicked */
+                { int ri;
+                  for (ri = 0; ri < gem_radio_count; ri++) {
+                    if ((long)gem_radio_gad[ri] == (long)gad) {
+                      event_obj = gem_radio_obj[ri];
+                      done = 1;
+                      break;
+                    }
+                  }
+                }
+                /* Sync GEM state: clear all, set selected */
+                { int si; int sel_obj = event_obj;
+                  struct GEMObject { short next, head, tail; unsigned short flags, state, type; long spec; short x, y, w, h; };
+                  struct GEMObject *objtree = (struct GEMObject *)tree;
+                  for (si = 0; si < gem_radio_count; si++) {
+                    int oi = gem_radio_obj[si];
+                    if (oi >= 0) {
+                      if (oi == sel_obj) objtree[oi].state |= 1;
+                      else objtree[oi].state &= ~1;
+                    }
+                  }
+                }
+              } else if (msg->Class == IDCMP_CLOSEWINDOW) {
+                event_obj = startobj;
+                done = 1;
+              }
+              ReplyMsg((struct Message *)msg);
+            }
+          }
+        } ENDNATIVE
+      ENDIF
+    ENDIF
+    -> Also check console for Enter key (fallback)
+    IF done = 0 AND WaitForChar(Input(), 0)
+      key := 0
+      Read(Input(), key, 1)
+      IF key = 10 OR key = 13
+        -> Enter: accept the currently selected radio or default button
+        event_obj := gem_GetRadioSelection()
+        IF event_obj < 0
+          event_obj := startobj
+        ENDIF
+        done := 1
+      ENDIF
+    ENDIF
+    IF done = 0
+      -> Small delay to avoid busy-waiting
+      Delay(1)
+    ENDIF
+  ENDWHILE
+  -> Remove radio gadgets and free the window if we created it
+  IF gem_radio_count > 0
+    gem_FreeRadioGadgets()
+  ENDIF
+  -> Clean up temporary window if we created one
+  IF win_h <> 0
+    win_idx := gem_wind_find_handle(win_h)
+    IF win_idx >= 0 AND gem_window_list[win_idx] <> 0
+      -> Only close if this was a temporary form window
+      -> (check if the window was not pre-existing by seeing if we set it up)
+      NATIVE {
+        struct Window *w = (struct Window *)gem_window_list[win_idx];
+        if (w) {
+          /* Remove any remaining gadgets first */
+          RemoveGList(w, w->FirstGadget, -1);
+          CloseWindow(w);
+          gem_window_list[win_idx] = 0;
+        }
+      } ENDNATIVE
+      gem_wind_state[win_idx] := WS_CLOSED
+    ENDIF
+  ENDIF
   gem_form_active := -1
-  ctx[0] := startobj
+  ctx[0] := event_obj
 ENDPROC
 
 PROC gem_form_dial()
@@ -2904,8 +3417,38 @@ PROC gem_form_keybd()
 ENDPROC
 
 PROC gem_form_button()
-  -> Return object index or 0
-  ctx[0] := 0
+  DEF tree, obj, depth, next_obj
+  tree := ctx[3]; obj := ctx[4]; depth := ctx[5]
+  next_obj := 0
+  -> If this is a radio button (type 21), handle mutual exclusion
+  IF tree <> 0 AND obj >= 0
+    NATIVE {
+      struct GEMObject { short next, head, tail; unsigned short flags, state, type; long spec; short x, y, w, h; };
+      struct GEMObject *objtree = (struct GEMObject *)tree;
+      int idx = (int)obj;
+      if (objtree[idx].type == 21) { /* G_RBUTTON */
+        int i;
+        /* Clear SELECTED bit on all radio buttons in this group.
+         * Radio group detection: walk from current object following 'next'
+         * until we find a non-radio button or wrap back. */
+        for (i = 0; objtree[i].type != 0; i++) {
+          if (objtree[i].type == 21) {
+            objtree[i].state &= ~1; /* clear SELECTED */
+          }
+        }
+        /* Set SELECTED on the clicked one */
+        objtree[idx].state |= 1;
+        next_obj = idx;
+      } else if (objtree[idx].type == 22) { /* G_CHECKBOX: toggle */
+        objtree[idx].state ^= 1;
+        next_obj = idx;
+      } else {
+        next_obj = idx;
+      }
+    } ENDNATIVE
+  ENDIF
+  -> Return the object that was clicked (or next object to process)
+  ctx[0] := next_obj
 ENDPROC
 
 
