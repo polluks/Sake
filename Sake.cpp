@@ -2901,6 +2901,12 @@ void xbios_random();
 void xbios_cookieptr();
 
 APTR oldTrapCode=(APTR) NULL;
+APTR old_trap1 = (APTR) NULL;
+APTR old_trap2 = (APTR) NULL;
+APTR old_trap3 = (APTR) NULL;
+APTR old_trap13 = (APTR) NULL;
+APTR old_trap14 = (APTR) NULL;
+unsigned char* trap_stub_mem = NULL;
 long ctx[32];    // Saved register context + extended params
 long gem_handles[16]; // GEMDOS handle -> AmigaOS BPTR mapping
 long gem_dta;                  // Disk Transfer Address (for Fsfirst/Fsnext)
@@ -7484,11 +7490,12 @@ try {
   vdi_init_rgb();
   vdi_init_line_pats();
   vdi_handle = -1;
+  install_traps();
 
-  if( extern int __main_argc; return __main_argc;> 1) {
-    arg2 = extern char **__main_argv; return (unsigned char*)__main_argv[(int)1 ];;
+  if( main_argc > 1) {
+    arg2 = main_argv[1];
     i = 0;
-    while( (- (arg2[i] != 0 )& i )< 127) {
+    while( (arg2[i] != 0) && (i < 127)) {
       filename[i] = arg2[i];
       i = i + 1;
     }
@@ -7531,6 +7538,7 @@ try {
 
     PutStr("\nAll GEMDOS functions completed\n" );
   }
+  remove_traps();
 } catch(...) {}
 try {
 	end_graphics();
@@ -7574,6 +7582,160 @@ void xbios_physbase() {
   // Return 0
   ctx[0] = 0;
 	return ;
+}
+
+
+// ---------------------------------------------------------------------------
+// Trap handlers - 68k exception vector installation for MorphOS & AmigaOS
+// ---------------------------------------------------------------------------
+
+extern "C" {
+  void handle_gemdos_trap(long* regs, unsigned char* usp);
+  void handle_gem_trap(long* regs);
+  void handle_bios_trap(long* regs, unsigned char* usp);
+  void handle_xbios_trap(long* regs, unsigned char* usp);
+}
+
+extern "C" void handle_gemdos_trap(long* regs, unsigned char* usp) {
+  short fn = ((unsigned short)usp[0] << 8) | (unsigned short)usp[1];
+  ctx[0] = fn;
+  ctx[1] = regs[1];
+  ctx[2] = regs[2];
+  ctx[3] = regs[3];
+  ctx[4] = regs[4];
+  ctx[5] = regs[5];
+  ctx[6] = regs[6];
+  ctx[7] = regs[7];
+  ctx[8] = (long)&usp[2];
+  ctx[9] = regs[9];
+  ctx[10] = regs[10];
+  ctx[11] = regs[11];
+  ctx[12] = regs[12];
+  ctx[13] = regs[13];
+  ctx[14] = regs[14];
+
+  gemdos_dispatch();
+
+  regs[0] = ctx[0];
+}
+
+extern "C" void handle_gem_trap(long* regs) {
+  ctx[0] = regs[0];
+  ctx[1] = regs[1];
+  ctx[2] = regs[2];
+  ctx[3] = regs[3];
+  ctx[8] = regs[8];
+
+  if (regs[0] == 0xC8) {
+    gem_aes_dispatch();
+  } else if (regs[0] == 0xC9) {
+    gem_vdi_dispatch();
+  } else {
+    bios_dispatch();
+  }
+
+  regs[0] = ctx[0];
+}
+
+extern "C" void handle_bios_trap(long* regs, unsigned char* usp) {
+  short fn = ((unsigned short)usp[0] << 8) | (unsigned short)usp[1];
+  ctx[0] = fn;
+  ctx[1] = regs[1];
+  ctx[2] = regs[2];
+  ctx[3] = regs[3];
+  ctx[8] = (long)&usp[2];
+
+  bios_dispatch();
+
+  regs[0] = ctx[0];
+}
+
+extern "C" void handle_xbios_trap(long* regs, unsigned char* usp) {
+  short fn = ((unsigned short)usp[0] << 8) | (unsigned short)usp[1];
+  ctx[0] = fn;
+  ctx[1] = regs[1];
+  ctx[2] = regs[2];
+  ctx[3] = regs[3];
+  ctx[8] = (long)&usp[2];
+
+  xbios_dispatch();
+
+  regs[0] = ctx[0];
+}
+
+void install_traps() {
+  if (trap_stub_mem) return;
+
+  trap_stub_mem = (unsigned char *)AllocMem(128, MEMF_PUBLIC | MEMF_CLEAR);
+  if (!trap_stub_mem) return;
+
+  unsigned char *p1 = trap_stub_mem;
+  unsigned char *p2 = trap_stub_mem + 32;
+  unsigned char *p3 = trap_stub_mem + 64;
+  unsigned char *p4 = trap_stub_mem + 96;
+
+  unsigned long h1 = (unsigned long)handle_gemdos_trap;
+  p1[0]=0x48; p1[1]=0xE7; p1[2]=0xFF; p1[3]=0xFE; /* movem.l d0-a6, -(sp) */
+  p1[4]=0x20; p1[5]=0x4F;                         /* movea.l sp, a0 */
+  p1[6]=0x4E; p1[7]=0x69;                         /* move.l  usp, a1 */
+  p1[8]=0x2F; p1[9]=0x09;                         /* move.l  a1, -(sp) (push usp) */
+  p1[10]=0x2F; p1[11]=0x08;                       /* move.l  a0, -(sp) (push regs) */
+  p1[12]=0x4E; p1[13]=0xB9; p1[14]=(h1>>24)&0xFF; p1[15]=(h1>>16)&0xFF; p1[16]=(h1>>8)&0xFF; p1[17]=h1&0xFF; /* jsr handle_gemdos_trap */
+  p1[18]=0x50; p1[19]=0x8F;                       /* addq.l  #8, sp */
+  p1[20]=0x4C; p1[21]=0xDF; p1[22]=0x7F; p1[23]=0xFE; /* movem.l (sp)+, d0-a6 */
+  p1[24]=0x4E; p1[25]=0x73;                       /* rte */
+
+  unsigned long h2 = (unsigned long)handle_gem_trap;
+  p2[0]=0x48; p2[1]=0xE7; p2[2]=0xFF; p2[3]=0xFE; /* movem.l d0-a6, -(sp) */
+  p2[4]=0x20; p2[5]=0x4F;                         /* movea.l sp, a0 */
+  p2[6]=0x2F; p2[7]=0x08;                         /* move.l  a0, -(sp) (push regs) */
+  p2[8]=0x4E; p2[9]=0xB9; p2[10]=(h2>>24)&0xFF; p2[11]=(h2>>16)&0xFF; p2[12]=(h2>>8)&0xFF; p2[13]=h2&0xFF; /* jsr handle_gem_trap */
+  p2[14]=0x58; p2[15]=0x8F;                       /* addq.l  #4, sp */
+  p2[16]=0x4C; p2[17]=0xDF; p2[18]=0x7F; p2[19]=0xFE; /* movem.l (sp)+, d0-a6 */
+  p2[20]=0x4E; p2[21]=0x73;                       /* rte */
+
+  unsigned long h3 = (unsigned long)handle_bios_trap;
+  p3[0]=0x48; p3[1]=0xE7; p3[2]=0xFF; p3[3]=0xFE; /* movem.l d0-a6, -(sp) */
+  p3[4]=0x20; p3[5]=0x4F;                         /* movea.l sp, a0 */
+  p3[6]=0x4E; p3[7]=0x69;                         /* move.l  usp, a1 */
+  p3[8]=0x2F; p3[9]=0x09;                         /* move.l  a1, -(sp) (push usp) */
+  p3[10]=0x2F; p3[11]=0x08;                       /* move.l  a0, -(sp) (push regs) */
+  p3[12]=0x4E; p3[13]=0xB9; p3[14]=(h3>>24)&0xFF; p3[15]=(h3>>16)&0xFF; p3[16]=(h3>>8)&0xFF; p3[17]=h3&0xFF; /* jsr handle_bios_trap */
+  p3[18]=0x50; p3[19]=0x8F;                       /* addq.l  #8, sp */
+  p3[20]=0x4C; p3[21]=0xDF; p3[22]=0x7F; p3[23]=0xFE; /* movem.l (sp)+, d0-a6 */
+  p3[24]=0x4E; p3[25]=0x73;                       /* rte */
+
+  unsigned long h4 = (unsigned long)handle_xbios_trap;
+  p4[0]=0x48; p4[1]=0xE7; p4[2]=0xFF; p4[3]=0xFE; /* movem.l d0-a6, -(sp) */
+  p4[4]=0x20; p4[5]=0x4F;                         /* movea.l sp, a0 */
+  p4[6]=0x4E; p4[7]=0x69;                         /* move.l  usp, a1 */
+  p4[8]=0x2F; p4[9]=0x09;                         /* move.l  a1, -(sp) (push usp) */
+  p4[10]=0x2F; p4[11]=0x08;                       /* move.l  a0, -(sp) (push regs) */
+  p4[12]=0x4E; p4[13]=0xB9; p4[14]=(h4>>24)&0xFF; p4[15]=(h4>>16)&0xFF; p4[16]=(h4>>8)&0xFF; p4[17]=h4&0xFF; /* jsr handle_xbios_trap */
+  p4[18]=0x50; p4[19]=0x8F;                       /* addq.l  #8, sp */
+  p4[20]=0x4C; p4[21]=0xDF; p4[22]=0x7F; p4[23]=0xFE; /* movem.l (sp)+, d0-a6 */
+  p4[24]=0x4E; p4[25]=0x73;                       /* rte */
+
+  CacheClearU();
+
+  old_trap1  = SetExc(33, (APTR)p1);
+  old_trap2  = SetExc(34, (APTR)p2);
+  old_trap3  = SetExc(35, (APTR)p2);
+  old_trap13 = SetExc(45, (APTR)p3);
+  old_trap14 = SetExc(46, (APTR)p4);
+}
+
+void remove_traps() {
+  if (old_trap1)  SetExc(33, old_trap1);
+  if (old_trap2)  SetExc(34, old_trap2);
+  if (old_trap3)  SetExc(35, old_trap3);
+  if (old_trap13) SetExc(45, old_trap13);
+  if (old_trap14) SetExc(46, old_trap14);
+
+  if (trap_stub_mem) {
+    FreeMem(trap_stub_mem, 128);
+    trap_stub_mem = NULL;
+  }
 }
 
 
