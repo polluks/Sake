@@ -38,8 +38,9 @@ DEF gem_alloc_count
 DEF gem_window_list[16]:ARRAY OF VALUE -> Open window handles (Intuition Window ptrs)
 DEF gem_aes_global[32]:ARRAY OF VALUE -> AES global array
 DEF gem_scrn_w, gem_scrn_h   -> Virtual screen dimensions
+DEF ver_string[32]:ARRAY OF CHAR -> AmigaOS $VER: version string
 DEF gadtools_base            -> gadtools.library base (opened at runtime)
-DEF reqtools_base            -> reqtools.library base (opened at runtime)
+DEF asl_base                 -> asl.library base (opened at runtime)
 DEF gem_cookie_jar           -> pointer to cookie jar (AllocMem'd block)
 DEF gem_cookie_count         -> number of active entries (excluding sentinel)
 DEF gem_cookie_max           -> max entries the jar can hold
@@ -2029,8 +2030,8 @@ ENDPROC (gadtools_base <> 0)
 PROC gem_OpenGadTools() IS NATIVE { extern unsigned long gadtools_base; gadtools_base = (unsigned long)OpenLibrary("gadtools.library", 0); } ENDNATIVE
 PROC gem_OpenGadTools13() IS NATIVE { extern unsigned long gadtools_base; gadtools_base = (unsigned long)OpenLibrary("gadtools13.library", 0); } ENDNATIVE
 
-PROC gem_OpenReqTools() IS NATIVE { extern unsigned long reqtools_base; reqtools_base = (unsigned long)OpenLibrary("reqtools.library", 39); } ENDNATIVE
-PROC gem_FreeReqTools() IS NATIVE { extern unsigned long reqtools_base; if (reqtools_base) { CloseLibrary((struct Library *)reqtools_base); reqtools_base = 0; } } ENDNATIVE
+PROC gem_OpenAsl() IS NATIVE { extern unsigned long asl_base; asl_base = (unsigned long)OpenLibrary("asl.library", 37); } ENDNATIVE
+PROC gem_FreeAsl() IS NATIVE { extern unsigned long asl_base; if (asl_base) { CloseLibrary((struct Library *)asl_base); asl_base = 0; } } ENDNATIVE
 
 
 -> ---------------------------------------------------------------------------
@@ -3558,52 +3559,34 @@ PROC gem_fsel_exinput()
     ENDPROC
   ENDIF
   NATIVE {
-    extern unsigned long reqtools_base;
-    APTR (*rtAllocRequestA)(ULONG, APTR, struct TagItem *);
-    APTR (*rtFileRequestA)(APTR, APTR, APTR, struct TagItem *);
-    void (*rtFreeRequest)(APTR);
-    struct TagItem tags[2];
-    APTR filereq;
+    extern unsigned long asl_base;
+    struct FileRequester *fr;
     char *path = (char *)path_ptr;
     char *file = (char *)file_ptr;
     long ok = 0;
 
-    if (!reqtools_base) { ctx[1] = 0; return; }
+    if (!asl_base) { ctx[1] = 0; return; }
 
-    /* LVO offsets from library base:
-     * Library base points to first function (Open).
-     * User functions start at offset 24 (after Open/Close/Expunge/ExtFunc).
-     * rtAllocRequestA: LVO -132 -> offset 108
-     * rtFileRequestA:  LVO -204 -> offset 180
-     * rtFreeRequest:   LVO -138 -> offset 114
-     */
-    rtAllocRequestA = (APTR)((char *)reqtools_base + 108);
-    rtFreeRequest   = (APTR)((char *)reqtools_base + 114);
-    rtFileRequestA  = (APTR)((char *)reqtools_base + 180);
-
-    /* Allocate a file requester (type 0 = RTREQTYPE_FILE) */
-    filereq = rtAllocRequestA(0, 0, 0);
-    if (filereq) {
-      tags[0].ti_Tag  = 0; /* TAG_DONE */
-      tags[0].ti_Data = 0;
-
-      ok = rtFileRequestA(filereq, file, "Select File", tags);
-
-      if (ok) {
-        /* Directory string is at offset 100 in struct rtFileRequester */
-        char *dir = *((char **)((char *)filereq + 100));
-        int len = 0;
-        if (dir) {
-          while (dir[len] && len < 126) { path[len] = dir[len]; len++; }
-          /* Ensure trailing slash for AmigaOS directory paths */
-          if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
-            path[len] = '/';
-            len++;
+    fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Select File", TAG_DONE);
+    if (fr) {
+      if (AslRequestTags(fr, TAG_DONE)) {
+        ok = 1;
+        if (fr->fr_Drawer) {
+          int len = strlen(fr->fr_Drawer);
+          if (len < 126) {
+            strcpy(path, fr->fr_Drawer);
+            if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+              path[len] = '/';
+              path[len+1] = 0;
+            }
           }
         }
-        path[len] = 0;
+        if (fr->fr_File) {
+          strncpy(file, fr->fr_File, 12);
+          file[12] = 0;
+        }
       }
-      rtFreeRequest(filereq);
+      FreeAslRequest(fr);
     }
     ctx[1] = ok;
   } ENDNATIVE
@@ -3621,42 +3604,34 @@ PROC gem_fsel_exoutput()
     ENDPROC
   ENDIF
   NATIVE {
-    extern unsigned long reqtools_base;
-    APTR (*rtAllocRequestA)(ULONG, APTR, struct TagItem *);
-    APTR (*rtFileRequestA)(APTR, APTR, APTR, struct TagItem *);
-    void (*rtFreeRequest)(APTR);
-    struct TagItem tags[2];
-    APTR filereq;
+    extern unsigned long asl_base;
+    struct FileRequester *fr;
     char *path = (char *)path_ptr;
     char *file = (char *)file_ptr;
     long ok = 0;
 
-    if (!reqtools_base) { ctx[1] = 0; return; }
+    if (!asl_base) { ctx[1] = 0; return; }
 
-    rtAllocRequestA = (APTR)((char *)reqtools_base + 108);
-    rtFreeRequest   = (APTR)((char *)reqtools_base + 114);
-    rtFileRequestA  = (APTR)((char *)reqtools_base + 180);
-
-    filereq = rtAllocRequestA(0, 0, 0);
-    if (filereq) {
-      tags[0].ti_Tag  = 0; /* TAG_DONE */
-      tags[0].ti_Data = 0;
-
-      ok = rtFileRequestA(filereq, file, "Save File", tags);
-
-      if (ok) {
-        char *dir = *((char **)((char *)filereq + 100));
-        int len = 0;
-        if (dir) {
-          while (dir[len] && len < 126) { path[len] = dir[len]; len++; }
-          if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
-            path[len] = '/';
-            len++;
+    fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Save File", TAG_DONE);
+    if (fr) {
+      if (AslRequestTags(fr, TAG_DONE)) {
+        ok = 1;
+        if (fr->fr_Drawer) {
+          int len = strlen(fr->fr_Drawer);
+          if (len < 126) {
+            strcpy(path, fr->fr_Drawer);
+            if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+              path[len] = '/';
+              path[len+1] = 0;
+            }
           }
         }
-        path[len] = 0;
+        if (fr->fr_File) {
+          strncpy(file, fr->fr_File, 12);
+          file[12] = 0;
+        }
       }
-      rtFreeRequest(filereq);
+      FreeAslRequest(fr);
     }
     ctx[1] = ok;
   } ENDNATIVE
@@ -5190,117 +5165,102 @@ PROC gem_vdi_dispatch()
 
   SELECT fn
 
-  CASE 1  -> v_clsvwk - Close workstation
-    vdi_clsvwk()
-  CASE 2  -> v_opnwk - Open workstation
-    vdi_opnwk()
-  CASE 5  -> v_opnvwk - Open virtual workstation
-    vdi_opnvwk()
-  CASE 6  -> v_clsvwk - Close virtual workstation
-    vdi_clsvwk()
-  CASE 7  -> v_clrwk - Clear workstation
-    vdi_clrwk()
-  CASE 8  -> v_updwk - Update workstation
-    vdi_updwk()
+  CASE 1; vdi_clsvwk()
+  CASE 2; vdi_opnwk()
+  CASE 3; vdi_clrwk()
+  CASE 4; vdi_updwk()
+  CASE 5; vdi_opnvwk()
+  CASE 6; vdi_clsvwk()
+  CASE 7; vdi_clrwk()
+  CASE 8; vdi_updwk()
+  CASE 9; ctx[0] := 1
+  CASE 10; vdi_qcolor()
+  CASE 11; vdi_pline()
+  CASE 12; vdi_pmarker()
+  CASE 13; vdi_gtext()
+  CASE 14; vdi_fillarea()
+  CASE 15; vdi_cellarray()
+  CASE 16; vdi_fillarea()
+  CASE 17; vdi_bar()
+  CASE 18; vdi_bar()
+  CASE 19; vdi_arc()
+  CASE 20; vdi_pieslice()
+  CASE 21; vdi_circle()
+  CASE 22; vdi_ellipse()
+  CASE 23; vdi_ellarc()
+  CASE 24; vdi_ellpie()
+  CASE 25; vdi_rbox()
+  CASE 26; vdi_rfbox()
+  CASE 27; vdi_justified()
+  CASE 28; ctx[0] := 1
+  CASE 29; ctx[0] := 1
+  CASE 30; vdi_qcurpos()
+  CASE 31; vdi_qkey_s()
 
-  -> Drawing primitives
-  CASE 11 -> v_pline
-    vdi_pline()
-  CASE 12 -> v_pmarker
-    vdi_pmarker()
-  CASE 13 -> v_gtext
-    vdi_gtext()
-  CASE 14 -> v_fillarea
-    vdi_fillarea()
-  CASE 15 -> v_ellipse
-    vdi_ellipse()
-  CASE 16 -> v_arc
-    vdi_arc()
-  CASE 17 -> v_pieslice
-    vdi_pieslice()
-  CASE 18 -> v_circle
-    vdi_circle()
-  CASE 19 -> v_ellarc
-    vdi_ellarc()
-  CASE 20 -> v_ellpie
-    vdi_ellpie()
-  CASE 21 -> v_rbox
-    vdi_rbox()
-  CASE 22 -> v_rfbox
-    vdi_rfbox()
-  CASE 23 -> v_bar
-    vdi_bar()
-  CASE 24 -> v_justified
-    vdi_justified()
+  CASE 32; vdi_set_line_type()
+  CASE 33; vdi_set_line_width()
+  CASE 34; vdi_set_line_color()
+  CASE 35; vdi_set_marker_type()
+  CASE 36; vdi_set_marker_height()
+  CASE 37; vdi_set_marker_color()
+  CASE 38; vdi_set_text_font()
+  CASE 39; vdi_set_text_color()
+  CASE 40; vdi_set_text_rotation()
+  CASE 41; vdi_set_fill_type()
+  CASE 42; vdi_set_fill_index()
+  CASE 43; vdi_set_fill_index()
+  CASE 44; vdi_set_fill_color()
+  CASE 45; vdi_set_writing_mode()
+  CASE 46; vdi_set_clip_rect()
+  CASE 47; vdi_set_curpos()
+  CASE 48; ctx[0] := 1
+  CASE 49; ctx[0] := 1
+  CASE 50; vdi_set_marker_height()
+  CASE 51; vdi_set_marker_height()
+  CASE 52; ctx[0] := 1
+  CASE 53; ctx[0] := 1
+  CASE 54; ctx[0] := 1
 
-  -> Attributes
-  CASE 32 -> vsl_type
-    vdi_set_line_type()
-  CASE 33 -> vsl_width
-    vdi_set_line_width()
-  CASE 34 -> vsl_color
-    vdi_set_line_color()
-  CASE 35 -> vsf_type
-    vdi_set_fill_type()
-  CASE 36 -> vsf_index
-    vdi_set_fill_index()
-  CASE 37 -> vsf_color
-    vdi_set_fill_color()
-  CASE 38 -> vsm_type
-    vdi_set_marker_type()
-  CASE 39 -> vsm_height
-    vdi_set_marker_height()
-  CASE 40 -> vsm_color
-    vdi_set_marker_color()
-  CASE 41 -> vst_font
-    vdi_set_text_font()
-  CASE 42 -> vst_color
-    vdi_set_text_color()
-  CASE 43 -> vst_rotation
-    vdi_set_text_rotation()
-  CASE 44 -> vswr_mode
-    vdi_set_writing_mode()
-  CASE 45 -> vsl_pattern - line pattern (obsolete)
-    ctx[0] := 1
-  CASE 46 -> vs_clip - set clipping rectangle
-    vdi_set_clip_rect()
-  CASE 47 -> vs_clip - set clipping state (0=off, 1=on)
-    vdi_set_clip_state()
-  CASE 48 -> vs_curpos - set graphics cursor position
-    vdi_set_curpos()
-
-  -> Inquiry
-  CASE 10 -> vq_color
-    vdi_qcolor()
-  CASE 26 -> vq_curpos
-    vdi_qcurpos()
-  CASE 27 -> vq_contxt
-    vdi_qcontxt()
-  CASE 30 -> vq_extnd
-    vdi_qextnd()
-  CASE 31 -> vq_key_s
-    vdi_qkey_s()
-  CASE 36 -> vq_cellht
-    vdi_qcellht()
-  CASE 37 -> vq_cellwd
-    vdi_qcellwd()
-  CASE 38 -> vq_chcells
-    vdi_qchcells()
-  CASE 120 -> vq_vgd
-    vdi_qvgd()
-
-  CASE 100 -> v_opnvwk (alternate)
-    vdi_opnvwk()
-  CASE 101 -> v_cellarray
-    vdi_cellarray()
-  CASE 107 -> v_bezier
-    vdi_bezier()
-  CASE 109 -> v_inq_fill_pats - inquire fill patterns
-    vdi_inq_fill_pats()
+  CASE 100; vdi_opnvwk()
+  CASE 101; vdi_clsvwk()
+  CASE 102; vdi_qextnd()
+  CASE 103; vdi_fillarea()
+  CASE 104; ctx[0] := 1
+  CASE 105; ctx[0] := 1
+  CASE 106; ctx[0] := 1
+  CASE 107; vdi_bezier()
+  CASE 108; ctx[0] := 1
+  CASE 109; vdi_inq_fill_pats()
+  CASE 110; vdi_qcontxt()
+  CASE 111; vdi_qcontxt()
+  CASE 112; vdi_qcontxt()
+  CASE 113; vdi_qcontxt()
+  CASE 114; vdi_qcellht()
+  CASE 115; vdi_qcellwd()
+  CASE 116; vdi_qchcells()
+  CASE 117; vdi_qchcells()
+  CASE 118; ctx[0] := 1
+  CASE 119; ctx[0] := 1
+  CASE 120; vdi_qvgd()
+  CASE 121; ctx[0] := 1
+  CASE 122; vdi_set_clip_rect()
+  CASE 123; ctx[0] := 1
+  CASE 124; ctx[0] := 1
+  CASE 125; vdi_qcurpos()
+  CASE 126; ctx[0] := 1
+  CASE 127; ctx[0] := 1
+  CASE 128; ctx[0] := 1
+  CASE 129; ctx[0] := 1
+  CASE 130; vdi_qkey_s()
+  CASE 131; vdi_qextnd()
+  CASE 132; vdi_qcolor()
+  CASE 133; ctx[0] := 1
+  CASE 134; vdi_qchcells()
+  CASE 135; vdi_qchcells()
 
   DEFAULT
-    -> All other VDI functions return success
     ctx[0] := 1
+
   ENDSELECT
 ENDPROC
 
@@ -5731,10 +5691,12 @@ PROC main()
   gem_graf_char_h := 16
   gem_graf_arrow_mode := 1
   gem_graf_accel_key := 0
+  gem_screen_mem := AllocMem(32768, 65538)
+  ver_string := '$VER: Sake 1.0 (28.10.2026)'
   gem_mouse_init()
   gem_init_fonts()
   gem_init_gadtools()
-  gem_OpenReqTools()
+  gem_OpenAsl()
   gem_init_cookie_jar()
   vdi_init_rgb()
   vdi_init_line_pats()
@@ -5788,7 +5750,7 @@ PROC main()
     PutStr('\nAll GEMDOS functions completed\n')
   ENDIF
   remove_traps()
-  gem_FreeReqTools()
+  gem_FreeAsl()
 ENDPROC
 
 
@@ -5797,15 +5759,8 @@ ENDPROC
 -> D1 = function (0=disable, 1=enable, 2=get status)
 -> ---------------------------------------------------------------------------
 PROC xbios_cursconf()
-  DEF mode
-  mode := ctx[1]
-  IF mode = 0
-    gem_mouse_visible := 0
-  ELSE
-    IF mode = 1
-      gem_mouse_visible := 1
-    ENDIF
-  ENDIF
+  IF ctx[1] = 0 THEN gem_mouse_visible := 0
+  IF ctx[1] = 1 THEN gem_mouse_visible := 1
   ctx[0] := gem_mouse_visible
 ENDPROC
 
