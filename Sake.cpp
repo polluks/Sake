@@ -3199,7 +3199,6 @@ void gemdos_dispatch() {
 
   default:
     ctx[0] = E_ERROR;
-    break;
   }
 	return ;
 }
@@ -4500,7 +4499,7 @@ void gem_aes_dispatch() {
     case 2: gem_appl_read(); break;
     case 3: gem_appl_write(); break;
     case 4: gem_appl_find(); break;
-    default: ctx[0] = E_ERROR; break;
+    default: ctx[0] = E_ERROR;
     }
     break;
 
@@ -4513,7 +4512,7 @@ void gem_aes_dispatch() {
     case 4: gem_evnt_keybd(); break;
     case 5: gem_evnt_dclick(); break;
     case 6: gem_evnt_timer(); break;
-    default: ctx[0] = E_ERROR; break;
+    default: ctx[0] = E_ERROR;
     }
     break;
 
@@ -4529,7 +4528,7 @@ void gem_aes_dispatch() {
     case 7: gem_menu_attach(); break;
     case 8: gem_menu_istart(); break;
     case 9: gem_menu_settings(); break;
-    default: ctx[0] = E_ERROR; break;
+    default: ctx[0] = E_ERROR;
     }
     break;
 
@@ -4544,7 +4543,7 @@ void gem_aes_dispatch() {
     case 6: gem_objc_edit(); break;
     case 7: gem_objc_change(); break;
     case 8: gem_objc_type(); break;
-    default: ctx[0] = E_ERROR; break;
+    default: ctx[0] = E_ERROR;
     }
     break;
 
@@ -4557,7 +4556,7 @@ void gem_aes_dispatch() {
     case 4: gem_form_center(); break;
     case 5: gem_form_keybd(); break;
     case 6: gem_form_button(); break;
-    default: ctx[0] = E_ERROR; break;
+    default: ctx[0] = E_ERROR;
     }
     break;
 
@@ -4565,7 +4564,7 @@ void gem_aes_dispatch() {
     switch( fn_sub) {
     case 0: gem_scrp_read(); break;
     case 1: gem_scrp_write(); break;
-    default: ctx[0] = E_ERROR; break;
+    default: ctx[0] = E_ERROR;
     }
     break;
 
@@ -4573,7 +4572,7 @@ void gem_aes_dispatch() {
     switch( fn_sub) {
     case 0: gem_fsel_exinput(); break;
     case 1: gem_fsel_exoutput(); break;
-    default: ctx[0] = E_ERROR; break;
+    default: ctx[0] = E_ERROR;
     }
     break;
 
@@ -4593,7 +4592,7 @@ void gem_aes_dispatch() {
     case 11: gem_wind_show(); break;
     case 12: gem_wind_toolbar(); break;
     case 13: gem_wind_sized(); break;
-    default: ctx[0] = E_ERROR; break;
+    default: ctx[0] = E_ERROR;
     }
     break;
 
@@ -4613,13 +4612,12 @@ void gem_aes_dispatch() {
     case 11: gem_graf_set_screen(); break;
     case 12: gem_graf_set_handle(); break;
     case 13: gem_graf_accel(); break;
-    default: ctx[0] = E_ERROR; break;
+    default: ctx[0] = E_ERROR;
     }
     break;
 
   default:
     ctx[0] = E_ERROR;
-    break;
   }
 	return ;
 }
@@ -5527,12 +5525,12 @@ void gem_wind_calc() {
   if (calc_type == 0) {
     ctx[1] = x + frame_w;
     ctx[2] = y + title_h;
-    ctx[3] = w - (frame_w * 2);
+    ctx[3] = w - frame_w * 2;
     ctx[4] = h - title_h - frame_w;
   } else {
     ctx[1] = x - frame_w;
     ctx[2] = y - title_h;
-    ctx[3] = w + (frame_w * 2);
+    ctx[3] = w + frame_w * 2;
     ctx[4] = h + title_h + frame_w;
   }
   ctx[0] = E_OK;
@@ -6981,7 +6979,6 @@ void gem_vdi_dispatch() {
   default:
     // All other VDI functions return success
     ctx[0] = 1;
-  	break;
   }
 	return ;
 }

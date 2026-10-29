@@ -1325,7 +1325,7 @@ PROC bios_random()
   -> Use system timer low word as simple random
   DEF now:datestamp
   DateStamp(now)
-  ctx[0] := now.days + (now.minute * 60) + now.tick
+  ctx[0] := now.days + now.minute * 60 + now.tick
 ENDPROC
 
 
@@ -1388,7 +1388,7 @@ PROC xbios_gettime()
   -> Convert to VBL count (50Hz approximate)
   -> Use days * 24 * 3600 * 50 + minutes * 60 * 50 + ticks * 50 / (50*60*24*365)
   -> Simplified: just use a rough counter
-  ctx[0] := (now.days * 4320000) + (now.minute * 3000) + ((now.tick * 50) / 300)
+  ctx[0] := now.days * 4320000 + now.minute * 3000 + now.tick * 50 / 300
 ENDPROC
 
 
@@ -2073,7 +2073,7 @@ ENDPROC
 PROC gem_cookie_set_sentinel()
   DEF base, sentinel
   IF gem_cookie_jar = 0 THEN ENDPROC
-  base := gem_cookie_jar + (gem_cookie_count * COOKIE_SIZE)
+  base := gem_cookie_jar + gem_cookie_count * COOKIE_SIZE
   NATIVE {
     long *p = (long *)base;
     p[0] = 0;            /* id = NULL */
@@ -2091,7 +2091,7 @@ PROC gem_cookie_find(id_str:PTR TO CHAR)
     id_val = (s[0]<<24) | (s[1]<<16) | (s[2]<<8) | s[3];
   } ENDNATIVE
   FOR i := 0 TO gem_cookie_count - 1
-    base := gem_cookie_jar + (i * COOKIE_SIZE)
+    base := gem_cookie_jar + i * COOKIE_SIZE
     NATIVE {
       long *entry = (long *)base;
       if (entry[0] == id_val) {
@@ -2113,7 +2113,7 @@ PROC gem_cookie_add(id_str:PTR TO CHAR, value:VALUE)
     char *s = (char *)id_str;
     id_val = (s[0]<<24) | (s[1]<<16) | (s[2]<<8) | s[3];
   } ENDNATIVE
-  base := gem_cookie_jar + (gem_cookie_count * COOKIE_SIZE)
+  base := gem_cookie_jar + gem_cookie_count * COOKIE_SIZE
   NATIVE {
     long *entry = (long *)base;
     entry[0] = id_val;
@@ -2128,7 +2128,7 @@ PROC gem_cookie_get(id_str:PTR TO CHAR, value_ptr)
   DEF idx, base
   idx := gem_cookie_find(id_str)
   IF idx < 0 THEN ENDPROC 0
-  base := gem_cookie_jar + (idx * COOKIE_SIZE)
+  base := gem_cookie_jar + idx * COOKIE_SIZE
   NATIVE {
     long *entry = (long *)base;
     *(long *)value_ptr = entry[1];
@@ -2142,7 +2142,7 @@ PROC gem_cookie_remove(id_str:PTR TO CHAR)
   IF idx < 0 THEN ENDPROC 0
   -> Shift all following entries forward by one COOKIE_SIZE
   FOR i := idx TO gem_cookie_count - 2
-    base := gem_cookie_jar + (i * COOKIE_SIZE)
+    base := gem_cookie_jar + i * COOKIE_SIZE
     next_base := base + COOKIE_SIZE
     NATIVE {
       long *dst = (long *)base;
@@ -3862,12 +3862,12 @@ PROC gem_wind_calc()
   IF calc_type = 0
     ctx[1] := x + frame_w
     ctx[2] := y + title_h
-    ctx[3] := w - (frame_w * 2)
+    ctx[3] := w - frame_w * 2
     ctx[4] := h - title_h - frame_w
   ELSE
     ctx[1] := x - frame_w
     ctx[2] := y - title_h
-    ctx[3] := w + (frame_w * 2)
+    ctx[3] := w + frame_w * 2
     ctx[4] := h + title_h + frame_w
   ENDIF
   ctx[0] := E_OK
@@ -5933,7 +5933,7 @@ ENDPROC
 PROC xbios_random()
   DEF now:datestamp
   DateStamp(now)
-  ctx[0] := now.days + (now.minute * 60) + now.tick
+  ctx[0] := now.days + now.minute * 60 + now.tick
 ENDPROC
 
 
