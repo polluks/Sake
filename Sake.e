@@ -100,47 +100,46 @@ PROC gemdos_dispatch()
 
   SELECT fn
 
-  CASE $00 -> gemdos_pterm0()
-  CASE $01 -> gemdos_cconin()
-  CASE $02 -> gemdos_cconout()
-  CASE $06 -> gemdos_cconws()
-  CASE $07 -> gemdos_cconis()
-  CASE $08 -> gemdos_cconos()
-  CASE $09 -> gemdos_cconws()
-  CASE $0A -> gemdos_cconrs()
-  CASE $0B -> gemdos_cconis()
-  CASE $0C -> gemdos_cconin()
-  CASE $0E -> gemdos_dsetdrv()
-  CASE $0F -> gemdos_dgetdrv()
-  CASE $10 -> gemdos_dsetpath()
-  CASE $11 -> gemdos_dgetpath()
-  CASE $15 -> gemdos_fopen()
-  CASE $16 -> gemdos_fclose()
-  CASE $17 -> gemdos_fread()
-  CASE $18 -> gemdos_fwrite()
-  CASE $19 -> gemdos_fdelete()
-  CASE $1A -> gemdos_fseek()
-  CASE $1B -> gemdos_fattrib()
-  CASE $1E -> gemdos_fdatime()
-  CASE $1F -> gemdos_fsfirst()
-  CASE $20 -> gemdos_fsnext()
-  CASE $21 -> gemdos_fsrename()
-  CASE $22 -> gemdos_fmkdir()
-  CASE $23 -> gemdos_frmdir()
-  CASE $24 -> gemdos_fchdir()
-  CASE $25 -> gemdos_fgetdta()
-  CASE $26 -> gemdos_fsetdta()
-  CASE $29 -> gemdos_malloc()
-  CASE $2A -> gemdos_mfree()
-  CASE $2D -> gemdos_pexec()
-  CASE $2E -> gemdos_pterm()
-  CASE $30 -> gemdos_super()
-  CASE $31 -> gemdos_tgetdate()
-  CASE $32 -> gemdos_tsetdate()
-  CASE $33 -> gemdos_tgettime()
-  CASE $34 -> gemdos_tsettime()
-  CASE $39 -> gemdos_mxalloc()
-  CASE $164 -> gemdos_ssystem()
+  CASE $00; gemdos_pterm0()
+  CASE $01; gemdos_cconin()
+  CASE $02; gemdos_cconout()
+  CASE $06; gemdos_cconws()
+  CASE $07; gemdos_cconis()
+  CASE $08; gemdos_cconos()
+  CASE $09; gemdos_cconws()
+  CASE $0A; gemdos_cconrs()
+  CASE $0B; gemdos_cconis()
+  CASE $0C; gemdos_cconin()
+  CASE $0E; gemdos_dsetdrv()
+  CASE $19; gemdos_dgetdrv()
+  CASE $1A; gemdos_fsetdta()
+  CASE $20; gemdos_super()
+  CASE $2A; gemdos_tgetdate()
+  CASE $2B; gemdos_tsetdate()
+  CASE $2C; gemdos_tgettime()
+  CASE $2D; gemdos_tsettime()
+  CASE $2F; gemdos_fgetdta()
+  CASE $39; gemdos_fmkdir()
+  CASE $3A; gemdos_frmdir()
+  CASE $3B; gemdos_dsetpath()
+  CASE $3D; gemdos_fopen()
+  CASE $3E; gemdos_fclose()
+  CASE $3F; gemdos_fread()
+  CASE $40; gemdos_fwrite()
+  CASE $41; gemdos_fdelete()
+  CASE $42; gemdos_fseek()
+  CASE $43; gemdos_fattrib()
+  CASE $44; gemdos_mxalloc()
+  CASE $47; gemdos_dgetpath()
+  CASE $48; gemdos_malloc()
+  CASE $49; gemdos_mfree()
+  CASE $4B; gemdos_pexec()
+  CASE $4C; gemdos_pterm()
+  CASE $4E; gemdos_fsfirst()
+  CASE $4F; gemdos_fsnext()
+  CASE $56; gemdos_fsrename()
+  CASE $57; gemdos_fdatime()
+  CASE $164; gemdos_ssystem()
 
   DEFAULT
     ctx[0] := E_ERROR
@@ -439,17 +438,22 @@ ENDPROC
 -> D0 = new position
 -> ---------------------------------------------------------------------------
 PROC gemdos_fseek()
-  DEF handle, offset, mode, newpos
+  DEF handle, offset, mode, oldpos, newpos
   handle := ctx[1]
   offset := ctx[2]
   mode := gemdos_to_amiga_seek(ctx[3])
 
   IF handle >= 3 AND handle <= 15
-    newpos := Seek(asBPTR(gem_handles[handle]), offset, mode)
-    IF newpos < 0
-      ctx[0] := E_ERROR
+    IF gem_handles[handle] <> 0
+      oldpos := Seek(asBPTR(gem_handles[handle]), offset, mode)
+      IF oldpos < 0
+        ctx[0] := E_ERROR
+      ELSE
+        newpos := Seek(asBPTR(gem_handles[handle]), 0, 0)
+        ctx[0] := newpos
+      ENDIF
     ELSE
-      ctx[0] := newpos
+      ctx[0] := EIHND
     ENDIF
   ELSE
     ctx[0] := EIHND
@@ -619,11 +623,11 @@ PROC FillDTA(dta:PTR TO CHAR, fib_ptr:PTR TO fileinfoblock)
   -> Set attribute (simplified: use 0 for normal)
   dta[21] := 0
 
-  -> Set size (LITTLE-ENDIAN for 68000)
-  dta[26] := asCHAR((fib_ptr.size) AND $FF)
-  dta[27] := asCHAR((fib_ptr.size / 256) AND $FF)
-  dta[28] := asCHAR((fib_ptr.size / 65536) AND $FF)
-  dta[29] := asCHAR((fib_ptr.size / 16777216) AND $FF)
+  -> Set size (BIG-ENDIAN 32-bit integer for 68000)
+  dta[26] := asCHAR((fib_ptr.size / 16777216) AND $FF)
+  dta[27] := asCHAR((fib_ptr.size / 65536) AND $FF)
+  dta[28] := asCHAR((fib_ptr.size / 256) AND $FF)
+  dta[29] := asCHAR((fib_ptr.size) AND $FF)
 
   -> Copy filename
   i := 0
@@ -723,6 +727,10 @@ ENDPROC
 PROC gemdos_malloc()
   DEF size, ptr
   size := ctx[1]
+  IF size = -1
+    ctx[0] := 14 * 1024 * 1024
+    RETURN
+  ENDIF
   -> Allocate with MEMF_CLEAR for zero-initialized memory
   ptr := AllocMem(size, 65538)  -> MEMF_CLEAR | MEMF_PUBLIC
   IF ptr = 0
@@ -773,6 +781,10 @@ ENDPROC
 PROC gemdos_mxalloc()
   DEF size, flags, memflags, ptr
   size := ctx[1]
+  IF size = -1
+    ctx[0] := 14 * 1024 * 1024
+    RETURN
+  ENDIF
   flags := ctx[2]
   memflags := 65538  -> MEMF_CLEAR | MEMF_PUBLIC
   IF (flags AND 1) = 0
@@ -866,18 +878,18 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC load_prg(filename:PTR TO CHAR)
   DEF fh:BPTR, header[32]:ARRAY OF CHAR, result
-  DEF text_size, data_size, bss_size, total_size
-  DEF addr:PTR TO CHAR, rel_flag, text_start
+  DEF text_size, data_size, bss_size, sym_size, total_size
+  DEF addr:PTR TO CHAR, rel_flag
   result := 0
 
   fh := Open(filename, 1005)
   IF fh
     IF Read(fh, header, 32) >= 28
-      text_size := asLONG(header[2])
-      data_size := asLONG(header[6])
-      bss_size := asLONG(header[10])
-      text_start := asLONG(header[18])
-      rel_flag := asINT(header[26])
+      text_size := (asLONG(header[2]) << 24) OR (asLONG(header[3]) << 16) OR (asLONG(header[4]) << 8) OR asLONG(header[5])
+      data_size := (asLONG(header[6]) << 24) OR (asLONG(header[7]) << 16) OR (asLONG(header[8]) << 8) OR asLONG(header[9])
+      bss_size := (asLONG(header[10]) << 24) OR (asLONG(header[11]) << 16) OR (asLONG(header[12]) << 8) OR asLONG(header[13])
+      sym_size := (asLONG(header[14]) << 24) OR (asLONG(header[15]) << 16) OR (asLONG(header[16]) << 8) OR asLONG(header[17])
+      rel_flag := (asINT(header[26]) << 8) OR asINT(header[27])
       total_size := text_size + data_size + bss_size
 
       addr := asPTR(AllocMem(total_size, 65538))
@@ -893,33 +905,40 @@ PROC load_prg(filename:PTR TO CHAR)
             result := 0
           ENDIF
         ENDIF
-        -> Apply relocation table if present
-        IF result <> 0 AND rel_flag <> 0 AND text_start <> 0
+        -> Apply relocation table if present (rel_flag = 0)
+        IF result <> 0 AND rel_flag = 0
+          Seek(fh, 28 + text_size + data_size + sym_size, -1)
           NATIVE {
             unsigned char *base = (unsigned char *)result;
-            long adj = (long)result - text_start;
-            long offset = 0;
-            long td_size = text_size + data_size;
-            if (adj != 0) {
-              while (offset < td_size) {
-                unsigned char ctrl = 0;
-                if (Read(fh, &ctrl, 1) != 1) break;
-                if (ctrl == 0) {
-                  offset = (offset + 256) & ~0xFFL;
-                } else if (ctrl & 0x80) {
-                  offset += (ctrl & 0x7F) * 256;
-                } else {
-                  int i;
-                  for (i = 0; i < ctrl; i++) {
-                    unsigned char boff = 0;
-                    if (Read(fh, &boff, 1) != 1) break;
-                    long addr_fix = (offset & ~0xFFL) + boff;
-                    if (addr_fix + 4 <= td_size) {
-                      long *lp = (long *)(base + addr_fix);
-                      *lp += adj;
+            unsigned char buf4[4];
+            if (Read(fh, buf4, 4) == 4) {
+              unsigned long offset = ((unsigned long)buf4[0] << 24) |
+                                     ((unsigned long)buf4[1] << 16) |
+                                     ((unsigned long)buf4[2] << 8)  |
+                                      (unsigned long)buf4[3];
+              if (offset != 0) {
+                unsigned long td_size = text_size + data_size;
+                unsigned long adj = (unsigned long)result;
+                if (offset + 4 <= td_size) {
+                  unsigned char *p = base + offset;
+                  unsigned long val = ((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16) | ((unsigned long)p[2] << 8) | (unsigned long)p[3];
+                  val += adj;
+                  p[0] = (val >> 24) & 0xFF; p[1] = (val >> 16) & 0xFF; p[2] = (val >> 8) & 0xFF; p[3] = val & 0xFF;
+                }
+                while (1) {
+                  unsigned char b = 0;
+                  if (Read(fh, &b, 1) != 1 || b == 0) break;
+                  if (b == 1) {
+                    offset += 254;
+                  } else {
+                    offset += b;
+                    if (offset + 4 <= td_size) {
+                      unsigned char *p = base + offset;
+                      unsigned long val = ((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16) | ((unsigned long)p[2] << 8) | (unsigned long)p[3];
+                      val += adj;
+                      p[0] = (val >> 24) & 0xFF; p[1] = (val >> 16) & 0xFF; p[2] = (val >> 8) & 0xFF; p[3] = val & 0xFF;
                     }
                   }
-                  offset = (offset & ~0xFFL) + 256;
                 }
               }
             }
@@ -1073,21 +1092,21 @@ PROC bios_dispatch()
 
   SELECT fn
 
-  CASE $00 -> bios_getmpb()
-  CASE $01 -> bios_bconin()
-  CASE $02 -> bios_bconout()
-  CASE $03 -> bios_rwabs()
-  CASE $04 -> bios_setexc()
-  CASE $05 -> bios_tickcal()
-  CASE $06 -> bios_gembp()
-  CASE $07 -> bios_bconstat()
-  CASE $08 -> bios_mediac()
-  CASE $09 -> bios_drvmap()
-  CASE $0A -> bios_kbshift()
-  CASE $0B -> bios_random()
+  CASE $00; bios_getmpb()
+  CASE $01; bios_bconin()
+  CASE $02; bios_bconout()
+  CASE $03; bios_rwabs()
+  CASE $04; bios_setexc()
+  CASE $05; bios_tickcal()
+  CASE $06; bios_gembp()
+  CASE $07; bios_bconstat()
+  CASE $08; bios_mediac()
+  CASE $09; bios_drvmap()
+  CASE $0A; bios_kbshift()
+  CASE $0B; bios_random()
 
-  CASE $C8 -> gem_aes_dispatch()
-  CASE $C9 -> gem_vdi_dispatch()
+  CASE $C8; gem_aes_dispatch()
+  CASE $C9; gem_vdi_dispatch()
 
   DEFAULT
     ctx[0] := E_ERROR
@@ -1260,7 +1279,7 @@ PROC bios_random()
   -> Use system timer low word as simple random
   DEF now:datestamp
   DateStamp(now)
-  ctx[0] := now.days + now.minute * 60 + now.tick
+  ctx[0] := now.days + (now.minute * 60) + now.tick
 ENDPROC
 
 
@@ -1273,29 +1292,29 @@ PROC xbios_dispatch()
 
   SELECT fn
 
-  CASE $00 -> xbios_initmouse()
-  CASE $01 -> xbios_gettime()
-  CASE $02 -> xbios_settime()
-  CASE $03 -> xbios_bioskeys()
-  CASE $04 -> xbios_kbrate()
-  CASE $05 -> xbios_prtblk()
-  CASE $06 -> xbios_scrndump()
-  CASE $07 -> xbios_cursconf()
-  CASE $08 -> xbios_appl_init()
-  CASE $09 -> xbios_physbase()
-  CASE $0A -> xbios_logbase()
-  CASE $0B -> xbios_getrez()
-  CASE $0C -> xbios_setscreen()
-  CASE $0D -> xbios_setpalette()
-  CASE $0E -> xbios_setcolor()
-  CASE $10 -> xbios_floprd()
-  CASE $11 -> xbios_flopwr()
-  CASE $12 -> xbios_flopfmt()
-  CASE $13 -> xbios_flopstatus()
-  CASE $17 -> xbios_rsconf()
-  CASE $18 -> xbios_keytbl()
-  CASE $19 -> xbios_random()
-  CASE $1E -> xbios_cookieptr()
+  CASE $00; xbios_initmouse()
+  CASE $01; xbios_gettime()
+  CASE $02; xbios_settime()
+  CASE $03; xbios_bioskeys()
+  CASE $04; xbios_kbrate()
+  CASE $05; xbios_prtblk()
+  CASE $06; xbios_scrndump()
+  CASE $07; xbios_cursconf()
+  CASE $08; xbios_appl_init()
+  CASE $09; xbios_physbase()
+  CASE $0A; xbios_logbase()
+  CASE $0B; xbios_getrez()
+  CASE $0C; xbios_setscreen()
+  CASE $0D; xbios_setpalette()
+  CASE $0E; xbios_setcolor()
+  CASE $10; xbios_floprd()
+  CASE $11; xbios_flopwr()
+  CASE $12; xbios_flopfmt()
+  CASE $13; xbios_flopstatus()
+  CASE $17; xbios_rsconf()
+  CASE $18; xbios_keytbl()
+  CASE $19; xbios_random()
+  CASE $1E; xbios_cookieptr()
 
   DEFAULT
     ctx[0] := E_ERROR
@@ -1323,7 +1342,7 @@ PROC xbios_gettime()
   -> Convert to VBL count (50Hz approximate)
   -> Use days * 24 * 3600 * 50 + minutes * 60 * 50 + ticks * 50 / (50*60*24*365)
   -> Simplified: just use a rough counter
-  ctx[0] := now.days * 4320000 + now.minute * 3000 + now.tick * 50 / 300
+  ctx[0] := (now.days * 4320000) + (now.minute * 3000) + ((now.tick * 50) / 300)
 ENDPROC
 
 
@@ -2008,7 +2027,7 @@ ENDPROC
 PROC gem_cookie_set_sentinel()
   DEF base, sentinel
   IF gem_cookie_jar = 0 THEN ENDPROC
-  base := gem_cookie_jar + gem_cookie_count * COOKIE_SIZE
+  base := gem_cookie_jar + (gem_cookie_count * COOKIE_SIZE)
   NATIVE {
     long *p = (long *)base;
     p[0] = 0;            /* id = NULL */
@@ -2026,7 +2045,7 @@ PROC gem_cookie_find(id_str:PTR TO CHAR)
     id_val = (s[0]<<24) | (s[1]<<16) | (s[2]<<8) | s[3];
   } ENDNATIVE
   FOR i := 0 TO gem_cookie_count - 1
-    base := gem_cookie_jar + i * COOKIE_SIZE
+    base := gem_cookie_jar + (i * COOKIE_SIZE)
     NATIVE {
       long *entry = (long *)base;
       if (entry[0] == id_val) {
@@ -2048,7 +2067,7 @@ PROC gem_cookie_add(id_str:PTR TO CHAR, value:VALUE)
     char *s = (char *)id_str;
     id_val = (s[0]<<24) | (s[1]<<16) | (s[2]<<8) | s[3];
   } ENDNATIVE
-  base := gem_cookie_jar + gem_cookie_count * COOKIE_SIZE
+  base := gem_cookie_jar + (gem_cookie_count * COOKIE_SIZE)
   NATIVE {
     long *entry = (long *)base;
     entry[0] = id_val;
@@ -2063,7 +2082,7 @@ PROC gem_cookie_get(id_str:PTR TO CHAR, value_ptr)
   DEF idx, base
   idx := gem_cookie_find(id_str)
   IF idx < 0 THEN ENDPROC 0
-  base := gem_cookie_jar + idx * COOKIE_SIZE
+  base := gem_cookie_jar + (idx * COOKIE_SIZE)
   NATIVE {
     long *entry = (long *)base;
     *(long *)value_ptr = entry[1];
@@ -2077,7 +2096,7 @@ PROC gem_cookie_remove(id_str:PTR TO CHAR)
   IF idx < 0 THEN ENDPROC 0
   -> Shift all following entries forward by one COOKIE_SIZE
   FOR i := idx TO gem_cookie_count - 2
-    base := gem_cookie_jar + i * COOKIE_SIZE
+    base := gem_cookie_jar + (i * COOKIE_SIZE)
     next_base := base + COOKIE_SIZE
     NATIVE {
       long *dst = (long *)base;
@@ -2216,125 +2235,125 @@ PROC gem_aes_dispatch()
 
   CASE AES_APPL
     SELECT fn_sub
-    CASE 0 -> gem_appl_init()
-    CASE 1 -> gem_appl_exit()
-    CASE 2 -> gem_appl_read()
-    CASE 3 -> gem_appl_write()
-    CASE 4 -> gem_appl_find()
-    DEFAULT -> ctx[0] := E_ERROR
+    CASE 0; gem_appl_init()
+    CASE 1; gem_appl_exit()
+    CASE 2; gem_appl_read()
+    CASE 3; gem_appl_write()
+    CASE 4; gem_appl_find()
+    DEFAULT; ctx[0] := E_ERROR
     ENDSELECT
 
   CASE AES_EVNT
     SELECT fn_sub
-    CASE 0 -> gem_evnt_multi()
-    CASE 1 -> gem_evnt_mesag()
-    CASE 2 -> gem_evnt_button()
-    CASE 3 -> gem_evnt_mouse()
-    CASE 4 -> gem_evnt_keybd()
-    CASE 5 -> gem_evnt_dclick()
-    CASE 6 -> gem_evnt_timer()
-    DEFAULT -> ctx[0] := E_ERROR
+    CASE 0; gem_evnt_multi()
+    CASE 1; gem_evnt_mesag()
+    CASE 2; gem_evnt_button()
+    CASE 3; gem_evnt_mouse()
+    CASE 4; gem_evnt_keybd()
+    CASE 5; gem_evnt_dclick()
+    CASE 6; gem_evnt_timer()
+    DEFAULT; ctx[0] := E_ERROR
     ENDSELECT
 
   CASE AES_RSRC
     SELECT fn_sub
-    CASE 0 -> gem_rsrc_load()
-    CASE 1 -> gem_rsrc_free()
-    CASE 2 -> gem_rsrc_gaddr()
-    DEFAULT -> ctx[0] := E_ERROR
+    CASE 0; gem_rsrc_load()
+    CASE 1; gem_rsrc_free()
+    CASE 2; gem_rsrc_gaddr()
+    DEFAULT; ctx[0] := E_ERROR
     ENDSELECT
 
   CASE AES_MENU
     SELECT fn_sub
-    CASE 0 -> gem_menu_bar()
-    CASE 1 -> gem_menu_icheck()
-    CASE 2 -> gem_menu_ienable()
-    CASE 3 -> gem_menu_tnormal()
-    CASE 4 -> gem_menu_text()
-    CASE 5 -> gem_menu_register()
-    CASE 6 -> gem_menu_popup()
-    CASE 7 -> gem_menu_attach()
-    CASE 8 -> gem_menu_istart()
-    CASE 9 -> gem_menu_settings()
-    DEFAULT -> ctx[0] := E_ERROR
+    CASE 0; gem_menu_bar()
+    CASE 1; gem_menu_icheck()
+    CASE 2; gem_menu_ienable()
+    CASE 3; gem_menu_tnormal()
+    CASE 4; gem_menu_text()
+    CASE 5; gem_menu_register()
+    CASE 6; gem_menu_popup()
+    CASE 7; gem_menu_attach()
+    CASE 8; gem_menu_istart()
+    CASE 9; gem_menu_settings()
+    DEFAULT; ctx[0] := E_ERROR
     ENDSELECT
 
   CASE AES_OBJC
     SELECT fn_sub
-    CASE 0 -> gem_objc_add()
-    CASE 1 -> gem_objc_delete()
-    CASE 2 -> gem_objc_draw()
-    CASE 3 -> gem_objc_find()
-    CASE 4 -> gem_objc_offset()
-    CASE 5 -> gem_objc_order()
-    CASE 6 -> gem_objc_edit()
-    CASE 7 -> gem_objc_change()
-    CASE 8 -> gem_objc_type()
-    DEFAULT -> ctx[0] := E_ERROR
+    CASE 0; gem_objc_add()
+    CASE 1; gem_objc_delete()
+    CASE 2; gem_objc_draw()
+    CASE 3; gem_objc_find()
+    CASE 4; gem_objc_offset()
+    CASE 5; gem_objc_order()
+    CASE 6; gem_objc_edit()
+    CASE 7; gem_objc_change()
+    CASE 8; gem_objc_type()
+    DEFAULT; ctx[0] := E_ERROR
     ENDSELECT
 
   CASE AES_FORM
     SELECT fn_sub
-    CASE 0 -> gem_form_do()
-    CASE 1 -> gem_form_dial()
-    CASE 2 -> gem_form_alert()
-    CASE 3 -> gem_form_error()
-    CASE 4 -> gem_form_center()
-    CASE 5 -> gem_form_keybd()
-    CASE 6 -> gem_form_button()
-    DEFAULT -> ctx[0] := E_ERROR
+    CASE 0; gem_form_do()
+    CASE 1; gem_form_dial()
+    CASE 2; gem_form_alert()
+    CASE 3; gem_form_error()
+    CASE 4; gem_form_center()
+    CASE 5; gem_form_keybd()
+    CASE 6; gem_form_button()
+    DEFAULT; ctx[0] := E_ERROR
     ENDSELECT
 
   CASE AES_SCRP
     SELECT fn_sub
-    CASE 0 -> gem_scrp_read()
-    CASE 1 -> gem_scrp_write()
-    DEFAULT -> ctx[0] := E_ERROR
+    CASE 0; gem_scrp_read()
+    CASE 1; gem_scrp_write()
+    DEFAULT; ctx[0] := E_ERROR
     ENDSELECT
 
   CASE AES_FSEL
     SELECT fn_sub
-    CASE 0 -> gem_fsel_exinput()
-    CASE 1 -> gem_fsel_exoutput()
-    DEFAULT -> ctx[0] := E_ERROR
+    CASE 0; gem_fsel_exinput()
+    CASE 1; gem_fsel_exoutput()
+    DEFAULT; ctx[0] := E_ERROR
     ENDSELECT
 
   CASE AES_WIND
     SELECT fn_sub
-    CASE 0 -> gem_wind_create()
-    CASE 1 -> gem_wind_open()
-    CASE 2 -> gem_wind_close()
-    CASE 3 -> gem_wind_delete()
-    CASE 4 -> gem_wind_get()
+    CASE 0; gem_wind_create()
+    CASE 1; gem_wind_open()
+    CASE 2; gem_wind_close()
+    CASE 3; gem_wind_delete()
+    CASE 4; gem_wind_get()
     CASE 5 -> gem_wind_set()
-    CASE 6 -> gem_wind_find()
-    CASE 7 -> gem_wind_update()
-    CASE 8 -> gem_wind_calc()
-    CASE 9 -> gem_wind_new()
-    CASE 10 -> gem_wind_arrow()
-    CASE 11 -> gem_wind_show()
-    CASE 12 -> gem_wind_toolbar()
-    CASE 13 -> gem_wind_sized()
-    DEFAULT -> ctx[0] := E_ERROR
+    CASE 6; gem_wind_find()
+    CASE 7; gem_wind_update()
+    CASE 8; gem_wind_calc()
+    CASE 9; gem_wind_new()
+    CASE 10; gem_wind_arrow()
+    CASE 11; gem_wind_show()
+    CASE 12; gem_wind_toolbar()
+    CASE 13; gem_wind_sized()
+    DEFAULT; ctx[0] := E_ERROR
     ENDSELECT
 
   CASE AES_GRAF
     SELECT fn_sub
-    CASE 0 -> gem_graf_rubberbox()
-    CASE 1 -> gem_graf_dragbox()
-    CASE 2 -> gem_graf_movebox()
-    CASE 3 -> gem_graf_growbox()
-    CASE 4 -> gem_graf_shrinkbox()
-    CASE 5 -> gem_graf_watchbox()
-    CASE 6 -> gem_graf_slidebox()
-    CASE 7 -> gem_graf_handle()
-    CASE 8 -> gem_graf_mkstate()
-    CASE 9 -> gem_graf_mouse()
-    CASE 10 -> gem_graf_arrow()
-    CASE 11 -> gem_graf_set_screen()
-    CASE 12 -> gem_graf_set_handle()
-    CASE 13 -> gem_graf_accel()
-    DEFAULT -> ctx[0] := E_ERROR
+    CASE 0; gem_graf_rubberbox()
+    CASE 1; gem_graf_dragbox()
+    CASE 2; gem_graf_movebox()
+    CASE 3; gem_graf_growbox()
+    CASE 4; gem_graf_shrinkbox()
+    CASE 5; gem_graf_watchbox()
+    CASE 6; gem_graf_slidebox()
+    CASE 7; gem_graf_handle()
+    CASE 8; gem_graf_mkstate()
+    CASE 9; gem_graf_mouse()
+    CASE 10; gem_graf_arrow()
+    CASE 11; gem_graf_set_screen()
+    CASE 12; gem_graf_set_handle()
+    CASE 13; gem_graf_accel()
+    DEFAULT; ctx[0] := E_ERROR
     ENDSELECT
 
   DEFAULT
@@ -3797,12 +3816,12 @@ PROC gem_wind_calc()
   IF calc_type = 0
     ctx[1] := x + frame_w
     ctx[2] := y + title_h
-    ctx[3] := w - frame_w * 2
+    ctx[3] := w - (frame_w * 2)
     ctx[4] := h - title_h - frame_w
   ELSE
     ctx[1] := x - frame_w
     ctx[2] := y - title_h
-    ctx[3] := w + frame_w * 2
+    ctx[3] := w + (frame_w * 2)
     ctx[4] := h + title_h + frame_w
   ENDIF
   ctx[0] := E_OK
@@ -5862,7 +5881,7 @@ ENDPROC
 PROC xbios_random()
   DEF now:datestamp
   DateStamp(now)
-  ctx[0] := now.days + now.minute * 60 + now.tick
+  ctx[0] := now.days + (now.minute * 60) + now.tick
 ENDPROC
 
 

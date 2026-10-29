@@ -3146,97 +3146,54 @@ long gemdos_to_amiga_seek(long gem_seek) {
 // ---------------------------------------------------------------------------
 void gemdos_dispatch() {
   long fn;
-  fn =  return (int)v; ;
+  fn = (int)ctx[0];
 
   switch( fn) {
 
-  case 0x00 :// gemdos_pterm0()
-
-  	break;
-  case 0x01 :// gemdos_cconin()
-  	break;
-  case 0x02 :// gemdos_cconout()
-  	break;
-  case 0x06 :// gemdos_cconws()
-  	break;
-  case 0x07 :// gemdos_cconis()
-  	break;
-  case 0x08 :// gemdos_cconos()
-  	break;
-  case 0x09 :// gemdos_cconws()
-  	break;
-  case 0x0A :// gemdos_cconrs()
-  	break;
-  case 0x0B :// gemdos_cconis()
-  	break;
-  case 0x0C :// gemdos_cconin()
-  	break;
-  case 0x0E :// gemdos_dsetdrv()
-  	break;
-  case 0x0F :// gemdos_dgetdrv()
-  	break;
-  case 0x10 :// gemdos_dsetpath()
-  	break;
-  case 0x11 :// gemdos_dgetpath()
-  	break;
-  case 0x15 :// gemdos_fopen()
-  	break;
-  case 0x16 :// gemdos_fclose()
-  	break;
-  case 0x17 :// gemdos_fread()
-  	break;
-  case 0x18 :// gemdos_fwrite()
-  	break;
-  case 0x19 :// gemdos_fdelete()
-  	break;
-  case 0x1A :// gemdos_fseek()
-  	break;
-  case 0x1B :// gemdos_fattrib()
-  	break;
-  case 0x1E :// gemdos_fdatime()
-  	break;
-  case 0x1F :// gemdos_fsfirst()
-  	break;
-  case 0x20 :// gemdos_fsnext()
-  	break;
-  case 0x21 :// gemdos_fsrename()
-  	break;
-  case 0x22 :// gemdos_fmkdir()
-  	break;
-  case 0x23 :// gemdos_frmdir()
-  	break;
-  case 0x24 :// gemdos_fchdir()
-  	break;
-  case 0x25 :// gemdos_fgetdta()
-  	break;
-  case 0x26 :// gemdos_fsetdta()
-  	break;
-  case 0x29 :// gemdos_malloc()
-  	break;
-  case 0x2A :// gemdos_mfree()
-  	break;
-  case 0x2D :// gemdos_pexec()
-  	break;
-  case 0x2E :// gemdos_pterm()
-  	break;
-  case 0x30 :// gemdos_super()
-  	break;
-  case 0x31 :// gemdos_tgetdate()
-  	break;
-  case 0x32 :// gemdos_tsetdate()
-  	break;
-  case 0x33 :// gemdos_tgettime()
-  	break;
-  case 0x34 :// gemdos_tsettime()
-  	break;
-  case 0x39 :// gemdos_mxalloc()
-  	break;
+  case 0x00: gemdos_pterm0(); break;
+  case 0x01: gemdos_cconin(); break;
+  case 0x02: gemdos_cconout(); break;
+  case 0x06: gemdos_cconws(); break;
+  case 0x07: gemdos_cconis(); break;
+  case 0x08: gemdos_cconos(); break;
+  case 0x09: gemdos_cconws(); break;
+  case 0x0A: gemdos_cconrs(); break;
+  case 0x0B: gemdos_cconis(); break;
+  case 0x0C: gemdos_cconin(); break;
+  case 0x0E: gemdos_dsetdrv(); break;
+  case 0x19: gemdos_dgetdrv(); break;
+  case 0x1A: gemdos_fsetdta(); break;
+  case 0x20: gemdos_super(); break;
+  case 0x2A: gemdos_tgetdate(); break;
+  case 0x2B: gemdos_tsetdate(); break;
+  case 0x2C: gemdos_tgettime(); break;
+  case 0x2D: gemdos_tsettime(); break;
+  case 0x2F: gemdos_fgetdta(); break;
+  case 0x39: gemdos_fmkdir(); break;
+  case 0x3A: gemdos_frmdir(); break;
+  case 0x3B: gemdos_dsetpath(); break;
+  case 0x3D: gemdos_fopen(); break;
+  case 0x3E: gemdos_fclose(); break;
+  case 0x3F: gemdos_fread(); break;
+  case 0x40: gemdos_fwrite(); break;
+  case 0x41: gemdos_fdelete(); break;
+  case 0x42: gemdos_fseek(); break;
+  case 0x43: gemdos_fattrib(); break;
+  case 0x44: gemdos_mxalloc(); break;
+  case 0x47: gemdos_dgetpath(); break;
+  case 0x48: gemdos_malloc(); break;
+  case 0x49: gemdos_mfree(); break;
+  case 0x4B: gemdos_pexec(); break;
+  case 0x4C: gemdos_pterm(); break;
+  case 0x4E: gemdos_fsfirst(); break;
+  case 0x4F: gemdos_fsnext(); break;
+  case 0x56: gemdos_fsrename(); break;
+  case 0x57: gemdos_fdatime(); break;
+  case 0x164: gemdos_ssystem(); break;
 
   default:
     ctx[0] = E_ERROR;
-
-  	break;
-
+    break;
   }
 	return ;
 }
@@ -3565,17 +3522,22 @@ void gemdos_fdelete() {
 // D0 = new position
 // ---------------------------------------------------------------------------
 void gemdos_fseek() {
-  long handle, offset, mode, newpos;
+  long handle, offset, mode, oldpos, newpos;
   handle = ctx[1];
   offset = ctx[2];
   mode = gemdos_to_amiga_seek(ctx[3]);
 
-  if( (- (handle >= 3 )& handle )<= 15) {
-    newpos = Seek( return (BPTR)v;  ,offset ,mode );
-    if( newpos < 0) {
-      ctx[0] = E_ERROR;
+  if (handle >= 3 && handle <= 15) {
+    if (gem_handles[handle] != 0) {
+      oldpos = Seek((BPTR)gem_handles[handle], offset, mode);
+      if (oldpos < 0) {
+        ctx[0] = E_ERROR;
+      } else {
+        newpos = Seek((BPTR)gem_handles[handle], 0, 0);
+        ctx[0] = newpos;
+      }
     } else {
-      ctx[0] = newpos;
+      ctx[0] = EIHND;
     }
   } else {
     ctx[0] = EIHND;
@@ -3709,31 +3671,17 @@ long FileMatch(char* name, char* pattern) {
 // ---------------------------------------------------------------------------
 void FillDTA(char* dta, struct FileInfoBlock* fib_ptr) {
   long i;
-  // GEMDOS DTA format:
-  //   +0: reserved (21 bytes)
-  //  +21: file attribute (byte)
-  //  +22: time (word)
-  //  +24: date (word)
-  //  +26: size (long)
-  //  +30: filename (13 chars + null)
-
-  // Clear DTA
-  for ( i = 0 ; i <= 43; i = i + 1) {
+  for (i = 0; i <= 43; i = i + 1) {
     dta[i] = 0;
   }
-
-  // Set attribute (simplified: use 0 for normal)
   dta[21] = 0;
+  dta[26] = (unsigned char)((fib_ptr->fib_Size / 16777216) & 0xFF);
+  dta[27] = (unsigned char)((fib_ptr->fib_Size / 65536) & 0xFF);
+  dta[28] = (unsigned char)((fib_ptr->fib_Size / 256) & 0xFF);
+  dta[29] = (unsigned char)((fib_ptr->fib_Size) & 0xFF);
 
-  // Set size (LITTLE-ENDIAN for 68000)
-  dta[26] =  return (unsigned char)v; ;
-  dta[27] =  return (unsigned char)v; ;
-  dta[28] =  return (unsigned char)v; ;
-  dta[29] =  return (unsigned char)v; ;
-
-  // Copy filename
   i = 0;
-  while( (- (fib_ptr->fib_FileName[i] != 0 )& i )< 12) {
+  while ((fib_ptr->fib_FileName[i] != 0) && (i < 12)) {
     dta[30 + i] = fib_ptr->fib_FileName[i];
     i = i + 1;
   }
@@ -3836,6 +3784,10 @@ void gemdos_fsetdta() {
 void gemdos_malloc() {
   long size, ptr;
   size = ctx[1];
+  if (size == -1) {
+    ctx[0] = 14 * 1024 * 1024;
+    return;
+  }
   // Allocate with MEMF_CLEAR for zero-initialized memory
   ptr = (long) AllocMem((ULONG) size ,(ULONG) 65538 );
   if( ptr == 0) {
@@ -3871,6 +3823,10 @@ void gemdos_mfree() {
 void gemdos_mxalloc() {
   long size, flags, memflags;
   size = ctx[1];
+  if (size == -1) {
+    ctx[0] = 14 * 1024 * 1024;
+    return;
+  }
   flags = ctx[2];
   memflags = 65538  ;// MEMF_CLEAR | MEMF_PUBLIC
   if( (flags & 1) == 0) {
@@ -3888,39 +3844,77 @@ void gemdos_mxalloc() {
 // ---------------------------------------------------------------------------
 long load_prg(char* filename) {
   BPTR fh=(BPTR) NULL; char header[32]; long result;
-  long text_size, data_size, bss_size, total_size;
-  char* addr=NULL;
+  long text_size, data_size, bss_size, sym_size, total_size;
+  char* addr=NULL; long rel_flag;
   result = 0;
 
-  fh = Open(filename ,1005 );
-  if( fh) {
-    if( Read(fh ,(APTR) (unsigned long) header ,32 )>= 32) {
-      text_size =  return (long)v; ;
-      data_size =  return (long)v; ;
-      bss_size =  return (long)v; ;
+  fh = Open(filename, 1005);
+  if (fh) {
+    if (Read(fh, (APTR)(unsigned long)header, 32) >= 28) {
+      text_size = ((unsigned char)header[2] << 24) | ((unsigned char)header[3] << 16) | ((unsigned char)header[4] << 8) | (unsigned char)header[5];
+      data_size = ((unsigned char)header[6] << 24) | ((unsigned char)header[7] << 16) | ((unsigned char)header[8] << 8) | (unsigned char)header[9];
+      bss_size = ((unsigned char)header[10] << 24) | ((unsigned char)header[11] << 16) | ((unsigned char)header[12] << 8) | (unsigned char)header[13];
+      sym_size = ((unsigned char)header[14] << 24) | ((unsigned char)header[15] << 16) | ((unsigned char)header[16] << 8) | (unsigned char)header[17];
+      rel_flag = ((unsigned char)header[26] << 8) | (unsigned char)header[27];
       total_size = text_size + data_size + bss_size;
 
-      addr =  return (unsigned char*)v; ;
-      if( addr) {
-        result = (long) addr;
-        if( text_size > 0) {
-          if( Read(fh ,(APTR) (unsigned long) addr ,text_size )< text_size) {
+      addr = (char*) AllocMem((ULONG)total_size, 65538);
+      if (addr) {
+        result = (long)addr;
+        if (text_size > 0) {
+          if (Read(fh, (APTR)(unsigned long)addr, text_size) < text_size) {
             result = 0;
           }
         }
-        if( (- (data_size > 0 )& result )!= 0) {
-          if( Read(fh ,(APTR) (unsigned long) ((long) addr + text_size) ,data_size )< data_size) {
+        if ((data_size > 0) && (result != 0)) {
+          if (Read(fh, (APTR)(unsigned long)((long)addr + text_size), data_size) < data_size) {
             result = 0;
           }
         }
-        if( result == 0) {
-          FreeMem((APTR) (unsigned long) addr ,(ULONG) total_size );
+        if (result != 0 && rel_flag == 0) {
+          Seek(fh, 28 + text_size + data_size + sym_size, -1);
+          unsigned char *base = (unsigned char *)result;
+          unsigned char buf4[4];
+          if (Read(fh, buf4, 4) == 4) {
+            unsigned long offset = ((unsigned long)buf4[0] << 24) |
+                                   ((unsigned long)buf4[1] << 16) |
+                                   ((unsigned long)buf4[2] << 8)  |
+                                    (unsigned long)buf4[3];
+            if (offset != 0) {
+              unsigned long td_size = text_size + data_size;
+              unsigned long adj = (unsigned long)result;
+              if (offset + 4 <= td_size) {
+                unsigned char *p = base + offset;
+                unsigned long val = ((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16) | ((unsigned long)p[2] << 8) | (unsigned long)p[3];
+                val += adj;
+                p[0] = (val >> 24) & 0xFF; p[1] = (val >> 16) & 0xFF; p[2] = (val >> 8) & 0xFF; p[3] = val & 0xFF;
+              }
+              while (1) {
+                unsigned char b = 0;
+                if (Read(fh, &b, 1) != 1 || b == 0) break;
+                if (b == 1) {
+                  offset += 254;
+                } else {
+                  offset += b;
+                  if (offset + 4 <= td_size) {
+                    unsigned char *p = base + offset;
+                    unsigned long val = ((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16) | ((unsigned long)p[2] << 8) | (unsigned long)p[3];
+                    val += adj;
+                    p[0] = (val >> 24) & 0xFF; p[1] = (val >> 16) & 0xFF; p[2] = (val >> 8) & 0xFF; p[3] = val & 0xFF;
+                  }
+                }
+              }
+            }
+          }
+        }
+        if (result == 0) {
+          FreeMem((APTR)(unsigned long)addr, (ULONG)total_size);
         }
       }
     }
-    -(BOOLEAN)(0!=Close(fh ));
+    Close(fh);
   }
-	return result;
+  return result;
 } 
 
 
@@ -4030,47 +4024,29 @@ void gemdos_tsettime() {
 // ---------------------------------------------------------------------------
 void bios_dispatch() {
   long fn;
-  fn =  return (int)v; ;
+  fn = (int)ctx[0];
 
   switch( fn) {
 
-  case 0x00 :// bios_getmpb()
+  case 0x00: bios_getmpb(); break;
+  case 0x01: bios_bconin(); break;
+  case 0x02: bios_bconout(); break;
+  case 0x03: bios_rwabs(); break;
+  case 0x04: bios_setexc(); break;
+  case 0x05: bios_tickcal(); break;
+  case 0x06: bios_gembp(); break;
+  case 0x07: bios_bconstat(); break;
+  case 0x08: bios_mediac(); break;
+  case 0x09: bios_drvmap(); break;
+  case 0x0A: bios_kbshift(); break;
+  case 0x0B: bios_random(); break;
 
-  	break;
-  case 0x01 :// bios_bconin()
-  	break;
-  case 0x02 :// bios_bconout()
-  	break;
-  case 0x03 :// bios_rwabs()
-  	break;
-  case 0x04 :// bios_setexc()
-  	break;
-  case 0x05 :// bios_tickcal()
-  	break;
-  case 0x06 :// bios_gembp()
-  	break;
-  case 0x07 :// bios_bconstat()
-  	break;
-  case 0x08 :// bios_mediac()
-  	break;
-  case 0x09 :// bios_drvmap()
-  	break;
-  case 0x0A :// bios_kbshift()
-  	break;
-  case 0x0B :// bios_random()
-  	break;
-
-  case 0xC8 :// gem_aes_dispatch()
-
-  	break;
-  case 0xC9 :// gem_vdi_dispatch()
-  	break;
+  case 0xC8: gem_aes_dispatch(); break;
+  case 0xC9: gem_vdi_dispatch(); break;
 
   default:
     ctx[0] = E_ERROR;
-
-  	break;
-
+    break;
   }
 	return ;
 }
@@ -4279,63 +4255,37 @@ void bios_random() {
 // ---------------------------------------------------------------------------
 void xbios_dispatch() {
   long fn;
-  fn =  return (int)v; ;
+  fn = (int)ctx[0];
 
   switch( fn) {
 
-  case 0x00 :// xbios_initmouse()
-
-  	break;
-  case 0x01 :// xbios_gettime()
-  	break;
-  case 0x02 :// xbios_settime()
-  	break;
-  case 0x03 :// xbios_bioskeys()
-  	break;
-  case 0x04 :// xbios_kbrate()
-  	break;
-  case 0x05 :// xbios_prtblk()
-  	break;
-  case 0x06 :// xbios_scrndump()
-  	break;
-  case 0x07 :// xbios_cursconf()
-  	break;
-  case 0x08 :// xbios_appl_init()
-  	break;
-  case 0x09 :// xbios_physbase()
-  	break;
-  case 0x0A :// xbios_logbase()
-  	break;
-  case 0x0B :// xbios_getrez()
-  	break;
-  case 0x0C :// xbios_setscreen()
-  	break;
-  case 0x0D :// xbios_setpalette()
-  	break;
-  case 0x0E :// xbios_setcolor()
-  	break;
-  case 0x10 :// xbios_floprd()
-  	break;
-  case 0x11 :// xbios_flopwr()
-  	break;
-  case 0x12 :// xbios_flopfmt()
-  	break;
-  case 0x13 :// xbios_flopstatus()
-  	break;
-  case 0x17 :// xbios_rsconf()
-  	break;
-  case 0x18 :// xbios_keytbl()
-  	break;
-  case 0x19 :// xbios_random()
-  	break;
-  case 0x1E :// xbios_cookieptr()
-  	break;
+  case 0x00: xbios_initmouse(); break;
+  case 0x01: xbios_gettime(); break;
+  case 0x02: xbios_settime(); break;
+  case 0x03: xbios_bioskeys(); break;
+  case 0x04: xbios_kbrate(); break;
+  case 0x05: xbios_prtblk(); break;
+  case 0x06: xbios_scrndump(); break;
+  case 0x07: xbios_cursconf(); break;
+  case 0x08: xbios_appl_init(); break;
+  case 0x09: xbios_physbase(); break;
+  case 0x0A: xbios_logbase(); break;
+  case 0x0B: xbios_getrez(); break;
+  case 0x0C: xbios_setscreen(); break;
+  case 0x0D: xbios_setpalette(); break;
+  case 0x0E: xbios_setcolor(); break;
+  case 0x10: xbios_floprd(); break;
+  case 0x11: xbios_flopwr(); break;
+  case 0x12: xbios_flopfmt(); break;
+  case 0x13: xbios_flopstatus(); break;
+  case 0x17: xbios_rsconf(); break;
+  case 0x18: xbios_keytbl(); break;
+  case 0x19: xbios_random(); break;
+  case 0x1E: xbios_cookieptr(); break;
 
   default:
     ctx[0] = E_ERROR;
-
-  	break;
-
+    break;
   }
 	return ;
 }
@@ -4502,221 +4452,131 @@ void gem_aes_dispatch() {
 
   case AES_APPL:
     switch( fn_sub) {
-    case 0 :// gem_appl_init()
-    	break;
-    case 1 :// gem_appl_exit()
-    	break;
-    case 2 :// gem_appl_read()
-    	break;
-    case 3 :// gem_appl_write()
-    	break;
-    case 4 :// gem_appl_find()
-    	break;
-    default: // ctx[0] := E_ERROR
-    	break;
+    case 0: gem_appl_init(); break;
+    case 1: gem_appl_exit(); break;
+    case 2: gem_appl_read(); break;
+    case 3: gem_appl_write(); break;
+    case 4: gem_appl_find(); break;
+    default: ctx[0] = E_ERROR; break;
     }
-
-  	break;
+    break;
 
   case AES_EVNT:
     switch( fn_sub) {
-    case 0 :// gem_evnt_multi()
-    	break;
-    case 1 :// gem_evnt_mesag()
-    	break;
-    case 2 :// gem_evnt_button()
-    	break;
-    case 3 :// gem_evnt_mouse()
-    	break;
-    case 4 :// gem_evnt_keybd()
-    	break;
-    case 5 :// gem_evnt_dclick()
-    	break;
-    case 6 :// gem_evnt_timer()
-    	break;
-    default: // ctx[0] := E_ERROR
-    	break;
+    case 0: gem_evnt_multi(); break;
+    case 1: gem_evnt_mesag(); break;
+    case 2: gem_evnt_button(); break;
+    case 3: gem_evnt_mouse(); break;
+    case 4: gem_evnt_keybd(); break;
+    case 5: gem_evnt_dclick(); break;
+    case 6: gem_evnt_timer(); break;
+    default: ctx[0] = E_ERROR; break;
     }
-
-  	break;
+    break;
 
   case AES_MENU:
     switch( fn_sub) {
-    case 0 :// gem_menu_bar()
-    	break;
-    case 1 :// gem_menu_icheck()
-    	break;
-    case 2 :// gem_menu_ienable()
-    	break;
-    case 3 :// gem_menu_tnormal()
-    	break;
-    case 4 :// gem_menu_text()
-    	break;
-    case 5 :// gem_menu_register()
-    	break;
-    case 6 :// gem_menu_popup()
-    	break;
-    case 7 :// gem_menu_attach()
-    	break;
-    case 8 :// gem_menu_istart()
-    	break;
-    case 9 :// gem_menu_settings()
-    	break;
-    default: // ctx[0] := E_ERROR
-    	break;
+    case 0: gem_menu_bar(); break;
+    case 1: gem_menu_icheck(); break;
+    case 2: gem_menu_ienable(); break;
+    case 3: gem_menu_tnormal(); break;
+    case 4: gem_menu_text(); break;
+    case 5: gem_menu_register(); break;
+    case 6: gem_menu_popup(); break;
+    case 7: gem_menu_attach(); break;
+    case 8: gem_menu_istart(); break;
+    case 9: gem_menu_settings(); break;
+    default: ctx[0] = E_ERROR; break;
     }
-
-  	break;
+    break;
 
   case AES_OBJC:
     switch( fn_sub) {
-    case 0 :// gem_objc_add()
-    	break;
-    case 1 :// gem_objc_delete()
-    	break;
-    case 2 :// gem_objc_draw()
-    	break;
-    case 3 :// gem_objc_find()
-    	break;
-    case 4 :// gem_objc_offset()
-    	break;
-    case 5 :// gem_objc_order()
-    	break;
-    case 6 :// gem_objc_edit()
-    	break;
-    case 7 :// gem_objc_change()
-    	break;
-    case 8 :// gem_objc_type()
-    	break;
-    default: // ctx[0] := E_ERROR
-    	break;
+    case 0: gem_objc_add(); break;
+    case 1: gem_objc_delete(); break;
+    case 2: gem_objc_draw(); break;
+    case 3: gem_objc_find(); break;
+    case 4: gem_objc_offset(); break;
+    case 5: gem_objc_order(); break;
+    case 6: gem_objc_edit(); break;
+    case 7: gem_objc_change(); break;
+    case 8: gem_objc_type(); break;
+    default: ctx[0] = E_ERROR; break;
     }
-
-  	break;
+    break;
 
   case AES_FORM:
     switch( fn_sub) {
-    case 0 :// gem_form_do()
-    	break;
-    case 1 :// gem_form_dial()
-    	break;
-    case 2 :// gem_form_alert()
-    	break;
-    case 3 :// gem_form_error()
-    	break;
-    case 4 :// gem_form_center()
-    	break;
-    case 5 :// gem_form_keybd()
-    	break;
-    case 6 :// gem_form_button()
-    	break;
-    default: // ctx[0] := E_ERROR
-    	break;
+    case 0: gem_form_do(); break;
+    case 1: gem_form_dial(); break;
+    case 2: gem_form_alert(); break;
+    case 3: gem_form_error(); break;
+    case 4: gem_form_center(); break;
+    case 5: gem_form_keybd(); break;
+    case 6: gem_form_button(); break;
+    default: ctx[0] = E_ERROR; break;
     }
-
-  	break;
+    break;
 
   case AES_SCRP:
     switch( fn_sub) {
-    case 0 :// gem_scrp_read()
-    	break;
-    case 1 :// gem_scrp_write()
-    	break;
-    default: // ctx[0] := E_ERROR
-    	break;
+    case 0: gem_scrp_read(); break;
+    case 1: gem_scrp_write(); break;
+    default: ctx[0] = E_ERROR; break;
     }
-
-  	break;
+    break;
 
   case AES_FSEL:
     switch( fn_sub) {
-    case 0 :// gem_fsel_exinput()
-    	break;
-    case 1 :// gem_fsel_exoutput()
-    	break;
-    default: // ctx[0] := E_ERROR
-    	break;
+    case 0: gem_fsel_exinput(); break;
+    case 1: gem_fsel_exoutput(); break;
+    default: ctx[0] = E_ERROR; break;
     }
-
-  	break;
+    break;
 
   case AES_WIND:
     switch( fn_sub) {
-    case 0 :// gem_wind_create()
-    	break;
-    case 1 :// gem_wind_open()
-    	break;
-    case 2 :// gem_wind_close()
-    	break;
-    case 3 :// gem_wind_delete()
-    	break;
-    case 4 :// gem_wind_get()
-    	break;
-    case 5 :// gem_wind_set()
-    	break;
-    case 6 :// gem_wind_find()
-    	break;
-    case 7 :// gem_wind_update()
-    	break;
-    case 8 :// gem_wind_calc()
-    	break;
-    case 9 :// gem_wind_new()
-    	break;
-    case 10 :// gem_wind_arrow()
-    	break;
-    case 11 :// gem_wind_show()
-    	break;
-    case 12 :// gem_wind_toolbar()
-    	break;
-    case 13 :// gem_wind_sized()
-    	break;
-    default: // ctx[0] := E_ERROR
-    	break;
+    case 0: gem_wind_create(); break;
+    case 1: gem_wind_open(); break;
+    case 2: gem_wind_close(); break;
+    case 3: gem_wind_delete(); break;
+    case 4: gem_wind_get(); break;
+    case 5: gem_wind_set(); break;
+    case 6: gem_wind_find(); break;
+    case 7: gem_wind_update(); break;
+    case 8: gem_wind_calc(); break;
+    case 9: gem_wind_new(); break;
+    case 10: gem_wind_arrow(); break;
+    case 11: gem_wind_show(); break;
+    case 12: gem_wind_toolbar(); break;
+    case 13: gem_wind_sized(); break;
+    default: ctx[0] = E_ERROR; break;
     }
-
-  	break;
+    break;
 
   case AES_GRAF:
     switch( fn_sub) {
-    case 0 :// gem_graf_rubberbox()
-    	break;
-    case 1 :// gem_graf_dragbox()
-    	break;
-    case 2 :// gem_graf_movebox()
-    	break;
-    case 3 :// gem_graf_growbox()
-    	break;
-    case 4 :// gem_graf_shrinkbox()
-    	break;
-    case 5 :// gem_graf_watchbox()
-    	break;
-    case 6 :// gem_graf_slidebox()
-    	break;
-    case 7 :// gem_graf_handle()
-    	break;
-    case 8 :// gem_graf_mkstate()
-    	break;
-    case 9 :// gem_graf_mouse()
-    	break;
-    case 10 :// gem_graf_arrow()
-    	break;
-    case 11 :// gem_graf_set_screen()
-    	break;
-    case 12 :// gem_graf_set_handle()
-    	break;
-    case 13 :// gem_graf_accel()
-    	break;
-    default: // ctx[0] := E_ERROR
-    	break;
+    case 0: gem_graf_rubberbox(); break;
+    case 1: gem_graf_dragbox(); break;
+    case 2: gem_graf_movebox(); break;
+    case 3: gem_graf_growbox(); break;
+    case 4: gem_graf_shrinkbox(); break;
+    case 5: gem_graf_watchbox(); break;
+    case 6: gem_graf_slidebox(); break;
+    case 7: gem_graf_handle(); break;
+    case 8: gem_graf_mkstate(); break;
+    case 9: gem_graf_mouse(); break;
+    case 10: gem_graf_arrow(); break;
+    case 11: gem_graf_set_screen(); break;
+    case 12: gem_graf_set_handle(); break;
+    case 13: gem_graf_accel(); break;
+    default: ctx[0] = E_ERROR; break;
     }
-
-  	break;
+    break;
 
   default:
     ctx[0] = E_ERROR;
-
-  	break;
-
+    break;
   }
 	return ;
 }
@@ -5621,16 +5481,15 @@ void gem_wind_calc() {
   x = ctx[5]; y = ctx[6]; w = ctx[7]; h = ctx[8];
   title_h = 30;
   frame_w = 4;
-  // calc_type 0: full→work area, 1: work→full area
-  if( calc_type == 0) {
+  if (calc_type == 0) {
     ctx[1] = x + frame_w;
     ctx[2] = y + title_h;
-    ctx[3] = (w - frame_w )* 2;
+    ctx[3] = w - (frame_w * 2);
     ctx[4] = h - title_h - frame_w;
   } else {
     ctx[1] = x - frame_w;
     ctx[2] = y - title_h;
-    ctx[3] = (w + frame_w )* 2;
+    ctx[3] = w + (frame_w * 2);
     ctx[4] = h + title_h + frame_w;
   }
   ctx[0] = E_OK;
@@ -7865,7 +7724,6 @@ void xbios_random() {
 // A0 = pointer to cookie jar (Atari ST cookie jar)
 // ---------------------------------------------------------------------------
 void xbios_cookieptr() {
-  // Return 0 - no cookie jar in emulator
-  ctx[0] = 0;
+  ctx[0] = gem_cookie_jar;
 	return ;
 }
