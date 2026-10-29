@@ -2524,6 +2524,10 @@ extern char gem_search_pattern[128]; // Pattern for search matching
 extern long gem_search_attr;          // Attributes for search matching
 extern char temp_string[256];
 extern long bios_kb_shift;            // Keyboard shift state for BIOS Kbshift
+extern long bios_vectors[256];        // Exception vectors table
+extern void* gem_screen_mem;          // Virtual screen buffer pointer
+long bios_vectors[256];        // Exception vectors table
+void* gem_screen_mem = NULL;   // Virtual screen buffer pointer
 extern long gem_aes_id;               // AES application ID counter
 extern long gem_window_list[16]; // Open window handles (Intuition Window ptrs)
 extern long gem_aes_global[32]; // AES global array
@@ -3169,6 +3173,8 @@ void gemdos_dispatch() {
   case 0x2C: gemdos_tgettime(); break;
   case 0x2D: gemdos_tsettime(); break;
   case 0x2F: gemdos_fgetdta(); break;
+  case 0x31: gemdos_ptermres(); break;
+  case 0x36: gemdos_dfree(); break;
   case 0x39: gemdos_fmkdir(); break;
   case 0x3A: gemdos_frmdir(); break;
   case 0x3B: gemdos_dsetpath(); break;
@@ -3339,7 +3345,7 @@ void gemdos_cconrs() {
 // ---------------------------------------------------------------------------
 void gemdos_dsetdrv() {
   gem_drv = ctx[1];
-  ctx[0] = E_OK;
+  ctx[0] = 7;
 	return ;
 }
 
@@ -3948,6 +3954,28 @@ void gemdos_pterm() {
   // In a real emulator, we'd clean up and exit the emulated process
 }
 
+void gemdos_ptermres() {
+  ctx[0] = E_OK;
+	return ;
+}
+
+void gemdos_dfree() {
+  char* buf=NULL; long drv;
+  buf = (char*)ctx[8];
+  drv = ctx[1];
+  if (buf != NULL) {
+    unsigned char *p = (unsigned char *)buf;
+    p[0] = 0; p[1] = 0; p[2] = 0x03; p[3] = 0xE8;
+    p[4] = 0; p[5] = 0; p[6] = 0x07; p[7] = 0xD0;
+    p[8] = 0; p[9] = 0; p[10] = 0x02; p[11] = 0;
+    p[12] = 0; p[13] = 0; p[14] = 0; p[15] = 2;
+    ctx[0] = E_OK;
+  } else {
+    ctx[0] = E_ERROR;
+  }
+	return ;
+}
+
 
 // ---------------------------------------------------------------------------
 // Super ($30) - Enter/exit supervisor mode
@@ -4058,8 +4086,13 @@ void bios_dispatch() {
 // Returns memory layout info
 // ---------------------------------------------------------------------------
 void bios_getmpb() {
-  // Stub - returns memory info for a 512KB ST
-  // In emulator, return reasonable defaults
+  long ptr = ctx[8];
+  if (ptr != 0) {
+    long *p = (long *)ptr;
+    p[0] = 0;
+    p[1] = 0;
+    p[2] = 0;
+  }
   ctx[0] = E_OK;
 	return ;
 }
@@ -4150,8 +4183,18 @@ void bios_rwabs() {
 // Returns previous handler address
 // ---------------------------------------------------------------------------
 void bios_setexc() {
-  // Stub - exception vectors not supported
-  ctx[0] = 0;
+  long vec, new_handler, old_handler;
+  vec = ctx[1];
+  new_handler = ctx[8];
+  if (vec >= 0 && vec <= 255) {
+    old_handler = bios_vectors[vec];
+    if (new_handler != -1) {
+      bios_vectors[vec] = new_handler;
+    }
+    ctx[0] = old_handler;
+  } else {
+    ctx[0] = 0;
+  }
 	return ;
 }
 
@@ -7343,6 +7386,7 @@ try {
   gem_graf_char_h = 16;
   gem_graf_arrow_mode = 1;
   gem_graf_accel_key = 0;
+  gem_screen_mem = (void*) AllocMem((ULONG) 32768 ,(ULONG) 65538 );
   gem_mouse_init();
   gem_init_fonts();
   gem_init_gadtools();
@@ -7416,7 +7460,13 @@ try {
 // D1 = function (0=disable, 1=enable, 2=get status)
 // ---------------------------------------------------------------------------
 void xbios_cursconf() {
-  ctx[0] = E_OK;
+  long mode = ctx[1];
+  if (mode == 0) {
+    gem_mouse_visible = 0;
+  } else if (mode == 1) {
+    gem_mouse_visible = 1;
+  }
+  ctx[0] = gem_mouse_visible;
 	return ;
 }
 
@@ -7437,9 +7487,7 @@ void xbios_appl_init() {
 // Returns address of physical screen memory
 // ---------------------------------------------------------------------------
 void xbios_physbase() {
-  // In emulator, no real ST screen memory
-  // Return 0
-  ctx[0] = 0;
+  ctx[0] = (long)gem_screen_mem;
 	return ;
 }
 
@@ -7602,8 +7650,7 @@ void remove_traps() {
 // Logbase ($0A) - Get logical screen base
 // ---------------------------------------------------------------------------
 void xbios_logbase() {
-  // Same as Physbase in emulator
-  ctx[0] = 0;
+  ctx[0] = (long)gem_screen_mem;
 	return ;
 }
 
