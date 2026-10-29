@@ -27,6 +27,8 @@ DEF gem_search_pattern[128]:ARRAY OF CHAR -> Pattern for search matching
 DEF gem_search_attr          -> Attributes for search matching
 DEF temp_string[256]:ARRAY OF CHAR
 DEF bios_kb_shift            -> Keyboard shift state for BIOS Kbshift
+DEF bios_vectors[256]:ARRAY OF VALUE -> Exception vectors table
+DEF gem_screen_mem           -> Virtual screen buffer pointer
 DEF gem_aes_id               -> AES application ID counter
 
 -> Memory allocation tracking for Mfree (pointer -> size table)
@@ -119,6 +121,8 @@ PROC gemdos_dispatch()
   CASE $2C; gemdos_tgettime()
   CASE $2D; gemdos_tsettime()
   CASE $2F; gemdos_fgetdta()
+  CASE $31; gemdos_ptermres()
+  CASE $36; gemdos_dfree()
   CASE $39; gemdos_fmkdir()
   CASE $3A; gemdos_frmdir()
   CASE $3B; gemdos_dsetpath()
@@ -264,7 +268,7 @@ ENDPROC
 -> ---------------------------------------------------------------------------
 PROC gemdos_dsetdrv()
   gem_drv := ctx[1]
-  ctx[0] := E_OK
+  ctx[0] := 7
 ENDPROC
 
 
@@ -983,6 +987,30 @@ PROC gemdos_pterm()
 ENDPROC
 
 
+PROC gemdos_ptermres()
+  ctx[0] := E_OK
+ENDPROC
+
+
+PROC gemdos_dfree()
+  DEF buf:PTR TO CHAR, drv
+  buf := asPTR(ctx[8])
+  drv := ctx[1]
+  IF buf <> 0
+    NATIVE {
+      unsigned char *p = (unsigned char *)buf;
+      p[0] = 0; p[1] = 0; p[2] = 0x03; p[3] = 0xE8;
+      p[4] = 0; p[5] = 0; p[6] = 0x07; p[7] = 0xD0;
+      p[8] = 0; p[9] = 0; p[10] = 0x02; p[11] = 0;
+      p[12] = 0; p[13] = 0; p[14] = 0; p[15] = 2;
+    } ENDNATIVE
+    ctx[0] := E_OK
+  ELSE
+    ctx[0] := E_ERROR
+  ENDIF
+ENDPROC
+
+
 -> ---------------------------------------------------------------------------
 -> Super ($30) - Enter/exit supervisor mode
 -> D1 = 0: enter supervisor, D1 <> 0: exit supervisor
@@ -1121,8 +1149,16 @@ ENDPROC
 -> Returns memory layout info
 -> ---------------------------------------------------------------------------
 PROC bios_getmpb()
-  -> Stub - returns memory info for a 512KB ST
-  -> In emulator, return reasonable defaults
+  DEF ptr
+  ptr := ctx[8]
+  IF ptr <> 0
+    NATIVE {
+      long *p = (long *)ptr;
+      p[0] = 0;
+      p[1] = 0;
+      p[2] = 0;
+    } ENDNATIVE
+  ENDIF
   ctx[0] := E_OK
 ENDPROC
 
@@ -1190,8 +1226,18 @@ ENDPROC
 -> Returns previous handler address
 -> ---------------------------------------------------------------------------
 PROC bios_setexc()
-  -> Stub - exception vectors not supported
-  ctx[0] := 0
+  DEF vec, new_handler, old_handler
+  vec := ctx[1]
+  new_handler := ctx[8]
+  IF vec >= 0 AND vec <= 255
+    old_handler := bios_vectors[vec]
+    IF new_handler <> -1
+      bios_vectors[vec] := new_handler
+    ENDIF
+    ctx[0] := old_handler
+  ELSE
+    ctx[0] := 0
+  ENDIF
 ENDPROC
 
 
@@ -1279,7 +1325,7 @@ PROC bios_random()
   -> Use system timer low word as simple random
   DEF now:datestamp
   DateStamp(now)
-  ctx[0] := now.days + (now.minute * 60) + now.tick
+  ctx[0] := now.days + now.minute * 60 + now.tick
 ENDPROC
 
 
@@ -1342,7 +1388,7 @@ PROC xbios_gettime()
   -> Convert to VBL count (50Hz approximate)
   -> Use days * 24 * 3600 * 50 + minutes * 60 * 50 + ticks * 50 / (50*60*24*365)
   -> Simplified: just use a rough counter
-  ctx[0] := (now.days * 4320000) + (now.minute * 3000) + ((now.tick * 50) / 300)
+  ctx[0] := now.days * 4320000 + now.minute * 3000 + now.tick * 50 / 300
 ENDPROC
 
 
@@ -2027,7 +2073,7 @@ ENDPROC
 PROC gem_cookie_set_sentinel()
   DEF base, sentinel
   IF gem_cookie_jar = 0 THEN ENDPROC
-  base := gem_cookie_jar + (gem_cookie_count * COOKIE_SIZE)
+  base := gem_cookie_jar + gem_cookie_count * COOKIE_SIZE
   NATIVE {
     long *p = (long *)base;
     p[0] = 0;            /* id = NULL */
@@ -2045,7 +2091,7 @@ PROC gem_cookie_find(id_str:PTR TO CHAR)
     id_val = (s[0]<<24) | (s[1]<<16) | (s[2]<<8) | s[3];
   } ENDNATIVE
   FOR i := 0 TO gem_cookie_count - 1
-    base := gem_cookie_jar + (i * COOKIE_SIZE)
+    base := gem_cookie_jar + i * COOKIE_SIZE
     NATIVE {
       long *entry = (long *)base;
       if (entry[0] == id_val) {
@@ -2067,7 +2113,7 @@ PROC gem_cookie_add(id_str:PTR TO CHAR, value:VALUE)
     char *s = (char *)id_str;
     id_val = (s[0]<<24) | (s[1]<<16) | (s[2]<<8) | s[3];
   } ENDNATIVE
-  base := gem_cookie_jar + (gem_cookie_count * COOKIE_SIZE)
+  base := gem_cookie_jar + gem_cookie_count * COOKIE_SIZE
   NATIVE {
     long *entry = (long *)base;
     entry[0] = id_val;
@@ -2082,7 +2128,7 @@ PROC gem_cookie_get(id_str:PTR TO CHAR, value_ptr)
   DEF idx, base
   idx := gem_cookie_find(id_str)
   IF idx < 0 THEN ENDPROC 0
-  base := gem_cookie_jar + (idx * COOKIE_SIZE)
+  base := gem_cookie_jar + idx * COOKIE_SIZE
   NATIVE {
     long *entry = (long *)base;
     *(long *)value_ptr = entry[1];
@@ -2096,7 +2142,7 @@ PROC gem_cookie_remove(id_str:PTR TO CHAR)
   IF idx < 0 THEN ENDPROC 0
   -> Shift all following entries forward by one COOKIE_SIZE
   FOR i := idx TO gem_cookie_count - 2
-    base := gem_cookie_jar + (i * COOKIE_SIZE)
+    base := gem_cookie_jar + i * COOKIE_SIZE
     next_base := base + COOKIE_SIZE
     NATIVE {
       long *dst = (long *)base;
@@ -2325,7 +2371,7 @@ PROC gem_aes_dispatch()
     CASE 2; gem_wind_close()
     CASE 3; gem_wind_delete()
     CASE 4; gem_wind_get()
-    CASE 5 -> gem_wind_set()
+    CASE 5; gem_wind_set()
     CASE 6; gem_wind_find()
     CASE 7; gem_wind_update()
     CASE 8; gem_wind_calc()
@@ -3816,12 +3862,12 @@ PROC gem_wind_calc()
   IF calc_type = 0
     ctx[1] := x + frame_w
     ctx[2] := y + title_h
-    ctx[3] := w - (frame_w * 2)
+    ctx[3] := w - frame_w * 2
     ctx[4] := h - title_h - frame_w
   ELSE
     ctx[1] := x - frame_w
     ctx[2] := y - title_h
-    ctx[3] := w + (frame_w * 2)
+    ctx[3] := w + frame_w * 2
     ctx[4] := h + title_h + frame_w
   ENDIF
   ctx[0] := E_OK
@@ -5751,7 +5797,16 @@ ENDPROC
 -> D1 = function (0=disable, 1=enable, 2=get status)
 -> ---------------------------------------------------------------------------
 PROC xbios_cursconf()
-  ctx[0] := E_OK
+  DEF mode
+  mode := ctx[1]
+  IF mode = 0
+    gem_mouse_visible := 0
+  ELSE
+    IF mode = 1
+      gem_mouse_visible := 1
+    ENDIF
+  ENDIF
+  ctx[0] := gem_mouse_visible
 ENDPROC
 
 
@@ -5770,9 +5825,7 @@ ENDPROC
 -> Returns address of physical screen memory
 -> ---------------------------------------------------------------------------
 PROC xbios_physbase()
-  -> In emulator, no real ST screen memory
-  -> Return 0
-  ctx[0] := 0
+  ctx[0] := asLONG(gem_screen_mem)
 ENDPROC
 
 
@@ -5780,8 +5833,7 @@ ENDPROC
 -> Logbase ($0A) - Get logical screen base
 -> ---------------------------------------------------------------------------
 PROC xbios_logbase()
-  -> Same as Physbase in emulator
-  ctx[0] := 0
+  ctx[0] := asLONG(gem_screen_mem)
 ENDPROC
 
 
@@ -5881,7 +5933,7 @@ ENDPROC
 PROC xbios_random()
   DEF now:datestamp
   DateStamp(now)
-  ctx[0] := now.days + (now.minute * 60) + now.tick
+  ctx[0] := now.days + now.minute * 60 + now.tick
 ENDPROC
 
 
