@@ -12,6 +12,8 @@
 #include <limits.h>
 #include <math.h>
 #include <string.h>
+#include <libraries/asl.h>
+#include <proto/asl.h>
 
 #define NULLA NULL
 #define NULLS NULL
@@ -2532,7 +2534,9 @@ extern long gem_aes_id;               // AES application ID counter
 extern long gem_window_list[16]; // Open window handles (Intuition Window ptrs)
 extern long gem_aes_global[32]; // AES global array
 extern long gem_scrn_w; extern long gem_scrn_h;   // Virtual screen dimensions
+static const char ver_tag[] = "\0$VER: Sake 1.0 (28.10.2026)";
 extern long gadtools_base;            // gadtools.library base (opened at runtime)
+extern long asl_base;                 // asl.library base (opened at runtime)
 
 // Window info structure
 extern long gem_wind_kind[MAX_WINDOWS];
@@ -2928,6 +2932,7 @@ long gem_window_list[16]; // Open window handles (Intuition Window ptrs)
 long gem_aes_global[32]; // AES global array
 long gem_scrn_w; long gem_scrn_h;   // Virtual screen dimensions
 long gadtools_base;            // gadtools.library base (opened at runtime)
+long asl_base;                 // asl.library base (opened at runtime)
 
 // Window info structure
 long gem_wind_kind[MAX_WINDOWS];
@@ -5304,16 +5309,73 @@ void gem_scrp_write() {
 // ============================
 
 void gem_fsel_exinput() {
-  // Return path and filename
-  ctx[1] = 0   ;// path ptr
-  ctx[2] = 0   ;// selection ptr
-  ctx[0] = 0   ;// 0=cancelled
-	return ;
+  long path_ptr = ctx[8];
+  long file_ptr = ctx[9];
+  if (!path_ptr || !file_ptr) { ctx[0] = 0; ctx[1] = 0; return; }
+  extern unsigned long asl_base;
+  struct FileRequester *fr;
+  char *path = (char *)path_ptr;
+  char *file = (char *)file_ptr;
+  long ok = 0;
+  if (!asl_base) { ctx[1] = 0; return; }
+  fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Select File", TAG_DONE);
+  if (fr) {
+    if (AslRequestTags(fr, TAG_DONE)) {
+      ok = 1;
+      if (fr->fr_Drawer) {
+        int len = strlen(fr->fr_Drawer);
+        if (len < 126) {
+          strcpy(path, fr->fr_Drawer);
+          if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+            path[len] = '/';
+            path[len+1] = 0;
+          }
+        }
+      }
+      if (fr->fr_File) {
+        strncpy(file, fr->fr_File, 12);
+        file[12] = 0;
+      }
+    }
+    FreeAslRequest(fr);
+  }
+  ctx[1] = ok;
+  return;
 }
 
 void gem_fsel_exoutput() {
-  ctx[0] = 0;
-	return ;
+  long path_ptr = ctx[8];
+  long file_ptr = ctx[9];
+  if (!path_ptr || !file_ptr) { ctx[0] = 0; ctx[1] = 0; return; }
+  extern unsigned long asl_base;
+  struct FileRequester *fr;
+  char *path = (char *)path_ptr;
+  char *file = (char *)file_ptr;
+  long ok = 0;
+  if (!asl_base) { ctx[1] = 0; return; }
+  fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Save File", TAG_DONE);
+  if (fr) {
+    if (AslRequestTags(fr, TAG_DONE)) {
+      ok = 1;
+      if (fr->fr_Drawer) {
+        int len = strlen(fr->fr_Drawer);
+        if (len < 126) {
+          strcpy(path, fr->fr_Drawer);
+          if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+            path[len] = '/';
+            path[len+1] = 0;
+          }
+        }
+      }
+      if (fr->fr_File) {
+        strncpy(file, fr->fr_File, 12);
+        file[12] = 0;
+      }
+    }
+    FreeAslRequest(fr);
+  }
+  ctx[1] = ok;
+  return;
 }
 
 
@@ -6816,168 +6878,100 @@ void gem_vdi_dispatch() {
 
   switch( fn) {
 
-  case 1  :// v_clsvwk - Close workstation
-    vdi_clsvwk();
+  case 1: vdi_clsvwk(); break;
+  case 2: vdi_opnwk(); break;
+  case 3: vdi_clrwk(); break;
+  case 4: vdi_updwk(); break;
+  case 5: vdi_opnvwk(); break;
+  case 6: vdi_clsvwk(); break;
+  case 7: vdi_clrwk(); break;
+  case 8: vdi_updwk(); break;
+  case 9: ctx[0] = 1; break;
+  case 10: vdi_qcolor(); break;
+  case 11: vdi_pline(); break;
+  case 12: vdi_pmarker(); break;
+  case 13: vdi_gtext(); break;
+  case 14: vdi_fillarea(); break;
+  case 15: vdi_cellarray(); break;
+  case 16: vdi_fillarea(); break;
+  case 17: vdi_bar(); break;
+  case 18: vdi_bar(); break;
+  case 19: vdi_arc(); break;
+  case 20: vdi_pieslice(); break;
+  case 21: vdi_circle(); break;
+  case 22: vdi_ellipse(); break;
+  case 23: vdi_ellarc(); break;
+  case 24: vdi_ellpie(); break;
+  case 25: vdi_rbox(); break;
+  case 26: vdi_rfbox(); break;
+  case 27: vdi_justified(); break;
+  case 28: ctx[0] = 1; break;
+  case 29: ctx[0] = 1; break;
+  case 30: vdi_qcurpos(); break;
+  case 31: vdi_qkey_s(); break;
 
-  	break;
-  case 2  :// v_opnwk - Open workstation
-    vdi_opnwk();
-  	break;
-  case 5  :// v_opnvwk - Open virtual workstation
-    vdi_opnvwk();
-  	break;
-  case 6  :// v_clsvwk - Close virtual workstation
-    vdi_clsvwk();
-  	break;
-  case 7  :// v_clrwk - Clear workstation
-    vdi_clrwk();
-  	break;
-  case 8  :// v_updwk - Update workstation
-    vdi_updwk();
+  case 32: vdi_set_line_type(); break;
+  case 33: vdi_set_line_width(); break;
+  case 34: vdi_set_line_color(); break;
+  case 35: vdi_set_marker_type(); break;
+  case 36: vdi_set_marker_height(); break;
+  case 37: vdi_set_marker_color(); break;
+  case 38: vdi_set_text_font(); break;
+  case 39: vdi_set_text_color(); break;
+  case 40: vdi_set_text_rotation(); break;
+  case 41: vdi_set_fill_type(); break;
+  case 42: vdi_set_fill_index(); break;
+  case 43: vdi_set_fill_index(); break;
+  case 44: vdi_set_fill_color(); break;
+  case 45: vdi_set_writing_mode(); break;
+  case 46: vdi_set_clip_rect(); break;
+  case 47: vdi_set_curpos(); break;
+  case 48: ctx[0] = 1; break;
+  case 49: ctx[0] = 1; break;
+  case 50: vdi_set_marker_height(); break;
+  case 51: vdi_set_marker_height(); break;
+  case 52: ctx[0] = 1; break;
+  case 53: ctx[0] = 1; break;
+  case 54: ctx[0] = 1; break;
 
-  // Drawing primitives
-  	break;
-  case 11 :// v_pline
-    vdi_pline();
-  	break;
-  case 12 :// v_pmarker
-    vdi_pmarker();
-  	break;
-  case 13 :// v_gtext
-    vdi_gtext();
-  	break;
-  case 14 :// v_fillarea
-    vdi_fillarea();
-  	break;
-  case 15 :// v_ellipse
-    vdi_ellipse();
-  	break;
-  case 16 :// v_arc
-    vdi_arc();
-  	break;
-  case 17 :// v_pieslice
-    vdi_pieslice();
-  	break;
-  case 18 :// v_circle
-    vdi_circle();
-  	break;
-  case 19 :// v_ellarc
-    vdi_ellarc();
-  	break;
-  case 20 :// v_ellpie
-    vdi_ellpie();
-  	break;
-  case 21 :// v_rbox
-    vdi_rbox();
-  	break;
-  case 22 :// v_rfbox
-    vdi_rfbox();
-  	break;
-  case 23 :// v_bar
-    vdi_bar();
-  	break;
-  case 24 :// v_justified
-    vdi_justified();
-
-  // Attributes
-  	break;
-  case 32 :// vsl_type
-    vdi_set_line_type();
-  	break;
-  case 33 :// vsl_width
-    vdi_set_line_width();
-  	break;
-  case 34 :// vsl_color
-    vdi_set_line_color();
-  	break;
-  case 35 :// vsf_type
-    vdi_set_fill_type();
-  	break;
-  case 36 :// vsf_index
-    vdi_set_fill_index();
-  	break;
-  case 37 :// vsf_color
-    vdi_set_fill_color();
-  	break;
-  case 38 :// vsm_type
-    vdi_set_marker_type();
-  	break;
-  case 39 :// vsm_height
-    vdi_set_marker_height();
-  	break;
-  case 40 :// vsm_color
-    vdi_set_marker_color();
-  	break;
-  case 41 :// vst_font
-    vdi_set_text_font();
-  	break;
-  case 42 :// vst_color
-    vdi_set_text_color();
-  	break;
-  case 43 :// vst_rotation
-    vdi_set_text_rotation();
-  	break;
-  case 44 :// vswr_mode
-    vdi_set_writing_mode();
-  	break;
-  case 45 :// vsl_pattern - line pattern (obsolete)
-    ctx[0] = 1;
-  	break;
-  case 46 :// vs_clip - set clipping rectangle
-    vdi_set_clip_rect();
-  	break;
-  case 47 :// vs_clip - set clipping state (0=off, 1=on)
-    vdi_set_clip_state();
-  	break;
-  case 48 :// vs_curpos - set graphics cursor position
-    vdi_set_curpos();
-
-  // Inquiry
-  	break;
-  case 10 :// vq_color
-    vdi_qcolor();
-  	break;
-  case 26 :// vq_curpos
-    vdi_qcurpos();
-  	break;
-  case 27 :// vq_contxt
-    vdi_qcontxt();
-  	break;
-  case 30 :// vq_extnd
-    vdi_qextnd();
-  	break;
-  case 31 :// vq_key_s
-    vdi_qkey_s();
-  	break;
-  case 36 :// vq_cellht
-    vdi_qcellht();
-  	break;
-  case 37 :// vq_cellwd
-    vdi_qcellwd();
-  	break;
-  case 38 :// vq_chcells
-    vdi_qchcells();
-  	break;
-  case 120 :// vq_vgd
-    vdi_qvgd();
-  	break;
-
-  case 100 :// v_opnvwk (alternate)
-    vdi_opnvwk();
-
-  	break;
-  case 101 :// v_cellarray
-    vdi_cellarray();
-  	break;
-  case 107 :// v_bezier
-    vdi_bezier();
-  	break;
-  case 109 :// v_inq_fill_pats - inquire fill patterns
-    vdi_inq_fill_pats();
-  	break;
+  case 100: vdi_opnvwk(); break;
+  case 101: vdi_clsvwk(); break;
+  case 102: vdi_qextnd(); break;
+  case 103: vdi_fillarea(); break;
+  case 104: ctx[0] = 1; break;
+  case 105: ctx[0] = 1; break;
+  case 106: ctx[0] = 1; break;
+  case 107: vdi_bezier(); break;
+  case 108: ctx[0] = 1; break;
+  case 109: vdi_inq_fill_pats(); break;
+  case 110: vdi_qcontxt(); break;
+  case 111: vdi_qcontxt(); break;
+  case 112: vdi_qcontxt(); break;
+  case 113: vdi_qcontxt(); break;
+  case 114: vdi_qcellht(); break;
+  case 115: vdi_qcellwd(); break;
+  case 116: vdi_qchcells(); break;
+  case 117: vdi_qchcells(); break;
+  case 118: ctx[0] = 1; break;
+  case 119: ctx[0] = 1; break;
+  case 120: vdi_qvgd(); break;
+  case 121: ctx[0] = 1; break;
+  case 122: vdi_set_clip_rect(); break;
+  case 123: ctx[0] = 1; break;
+  case 124: ctx[0] = 1; break;
+  case 125: vdi_qcurpos(); break;
+  case 126: ctx[0] = 1; break;
+  case 127: ctx[0] = 1; break;
+  case 128: ctx[0] = 1; break;
+  case 129: ctx[0] = 1; break;
+  case 130: vdi_qkey_s(); break;
+  case 131: vdi_qextnd(); break;
+  case 132: vdi_qcolor(); break;
+  case 133: ctx[0] = 1; break;
+  case 134: vdi_qchcells(); break;
+  case 135: vdi_qchcells(); break;
 
   default:
-    // All other VDI functions return success
     ctx[0] = 1;
   }
 	return ;
@@ -7457,12 +7451,8 @@ try {
 // D1 = function (0=disable, 1=enable, 2=get status)
 // ---------------------------------------------------------------------------
 void xbios_cursconf() {
-  long mode = ctx[1];
-  if (mode == 0) {
-    gem_mouse_visible = 0;
-  } else if (mode == 1) {
-    gem_mouse_visible = 1;
-  }
+  if (ctx[1] == 0) gem_mouse_visible = 0;
+  if (ctx[1] == 1) gem_mouse_visible = 1;
   ctx[0] = gem_mouse_visible;
 	return ;
 }
