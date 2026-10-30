@@ -3235,7 +3235,7 @@ try {
   Read(Input() ,(APTR) (unsigned long) ch ,1 );
   // Echo character
   Write(Output() ,(APTR) (unsigned long) ch ,1 );
-  ctx[0] =  return (long)v; ;
+  ctx[0] = (long)ch[0];
 } catch(...) {}
 	DisposeString(ch );
 	if (exception!=0) {throw eException ;} else {EMPTY;};
@@ -3255,7 +3255,7 @@ try {
 	ch = NewString(1);
 	temp_QUAD = exception ;
 	exception = 0 ;
-  ch[0] =  return (unsigned char)v; ;
+  ch[0] = (unsigned char)ctx[1];
   Write(Output() ,(APTR) (unsigned long) ch ,1 );
   ctx[0] = E_OK;
 } catch(...) {}
@@ -3294,7 +3294,7 @@ void gemdos_cconos() {
 // ---------------------------------------------------------------------------
 void gemdos_cconws() {
   char* src=NULL; long len;
-  src =  return (unsigned char*)v; ;
+  src = (unsigned char*)ctx[8];
   // Copy string from emulated memory and write it
   len = 0;
   while( (- (src[len] != 0 )& len )< 255) {
@@ -3314,7 +3314,7 @@ void gemdos_cconws() {
 // ---------------------------------------------------------------------------
 void gemdos_cconrs() {
   long maxlen; char* buf=NULL; char ch[2]; long pos, done;
-  buf =  return (unsigned char*)v; ;
+  buf = (unsigned char*)ctx[8];
   maxlen = buf[0];
   pos = 0;
   done = FALSE;
@@ -3370,7 +3370,7 @@ void gemdos_dgetdrv() {
 // ---------------------------------------------------------------------------
 void gemdos_dsetpath() {
   char* src=NULL; long i;
-  src =  return (unsigned char*)v; ;
+  src = (unsigned char*)ctx[8];
   i = 0;
   while( (- (src[i] != 0 )& i )< 127) {
     gem_path[i] = src[i];
@@ -3388,7 +3388,7 @@ void gemdos_dsetpath() {
 // ---------------------------------------------------------------------------
 void gemdos_dgetpath() {
   char* dst=NULL; long i;
-  dst =  return (unsigned char*)v; ;
+  dst = (unsigned char*)ctx[8];
   i = 0;
   while( gem_path[i] != 0) {
     dst[i] = gem_path[i];
@@ -3407,7 +3407,7 @@ void gemdos_dgetpath() {
 // ---------------------------------------------------------------------------
 void gemdos_fopen() {
   char* filename=NULL; long mode, handle, i, result;
-  filename =  return (unsigned char*)v; ;
+  filename = (unsigned char*)ctx[8];
   mode = gemdos_fopen_mode(ctx[1]);
   handle = (long) Open(filename ,mode );
   if( handle) {
@@ -3420,7 +3420,7 @@ void gemdos_fopen() {
       }
     }
     if( result == ENFHND) {
-      -(BOOLEAN)(0!=Close( return (BPTR)v;  ));
+      -(BOOLEAN)(0!=Close((BPTR)handle));
     }
     ctx[0] = result;
   } else {
@@ -3438,7 +3438,7 @@ void gemdos_fclose() {
   long handle;
   handle = ctx[1];
   if( (- (handle >= 3 )& handle )<= 15) {
-    -(BOOLEAN)(0!=Close( return (BPTR)v;  ));
+    -(BOOLEAN)(0!=Close((BPTR)handle));
     gem_handles[handle] = 0;
     ctx[0] = E_OK;
   } else {
@@ -3457,13 +3457,13 @@ void gemdos_fread() {
   long handle, count; char* buf=NULL; long result;
   handle = ctx[1];
   count = ctx[2];
-  buf =  return (unsigned char*)v; ;
+  buf = (unsigned char*)ctx[8];
 
   if( (- (handle >= 0 )& handle )<= 15) {
     if( handle == 0) {
       result = Read(Input() ,(APTR) (unsigned long) buf ,count );
     } else {
-      result = Read( return (BPTR)v;  ,(APTR) (unsigned long) buf ,count );
+      result = Read((BPTR)gem_handles[handle], (APTR)(unsigned long)buf, count);
     }
     if( (- (result == 0 )& count )> 0) {
       ctx[0] = E_ERROR;
@@ -3486,7 +3486,7 @@ void gemdos_fwrite() {
   long handle, count; char* buf=NULL; long result;
   handle = ctx[1];
   count = ctx[2];
-  buf =  return (unsigned char*)v; ;
+  buf = (unsigned char*)ctx[8];
 
   if( (- (handle >= 0 )& handle )<= 15) {
     if( handle == 0) {
@@ -3495,7 +3495,7 @@ void gemdos_fwrite() {
       if( (- (handle == 1 )| handle )== 2) {
         result = Write(Output() ,(APTR) (unsigned long) buf ,count );
       } else {
-        result = Write( return (BPTR)v;  ,(APTR) (unsigned long) buf ,count );
+        result = Write((BPTR)gem_handles[handle], (APTR)(unsigned long)buf, count);
       }
     }
     if( (- (result == 0 )& count )> 0) {
@@ -3516,7 +3516,7 @@ void gemdos_fwrite() {
 // ---------------------------------------------------------------------------
 void gemdos_fdelete() {
   char* filename=NULL;
-  filename =  return (unsigned char*)v; ;
+  filename = (unsigned char*)ctx[8];
   if( -(BOOLEAN)(0!=DeleteFile(filename ))) {
     ctx[0] = E_OK;
   } else {
@@ -3564,7 +3564,7 @@ void gemdos_fseek() {
 void gemdos_fattrib() {
   long mode; char* filename=NULL;
   mode = ctx[1];
-  filename =  return (unsigned char*)v; ;
+  filename = (unsigned char*)ctx[8];
   if( mode == 0) {
     // Get attributes - simplified, returns 0
     ctx[0] = 0;
@@ -3595,11 +3595,11 @@ void gemdos_fdatime() {
 void gemdos_fsfirst() {
   char* pattern=NULL; long attr, i;
   char lock_name[256];
-  pattern =  return (unsigned char*)v; ;
+  pattern = (unsigned char*)ctx[8];
   attr = ctx[1];
 
   if( gem_search_lock) {
-    UnLock( return (BPTR)v;  );
+    UnLock((BPTR)lock);
     gem_search_lock = 0;
   }
 
@@ -3614,9 +3614,9 @@ void gemdos_fsfirst() {
   gem_search_lock = (long) Lock(lock_name ,-2 );
 
   if( gem_search_lock) {
-    if( -(BOOLEAN)(0!=Examine( return (BPTR)v;  ,& fib ))) {
+    if( -(BOOLEAN)(0!=Examine((BPTR)lock, &fib))) {
       if( gem_dta != 0) {
-        FillDTA( return (unsigned char*)v; , & fib);
+        FillDTA((unsigned char*)gem_dta, &fib);
       }
       gem_search_first = TRUE;
       ctx[0] = E_OK;
@@ -3632,9 +3632,9 @@ void gemdos_fsfirst() {
 
 void gemdos_fsnext() {
   if( gem_search_lock) {
-    if( -(BOOLEAN)(0!=ExNext( return (BPTR)v;  ,& fib ))) {
+    if( -(BOOLEAN)(0!=ExNext((BPTR)lock, &fib))) {
       if( gem_dta != 0) {
-        FillDTA( return (unsigned char*)v; , & fib);
+        FillDTA((unsigned char*)gem_dta, &fib);
       }
       ctx[0] = E_OK;
     } else {
@@ -3706,8 +3706,8 @@ void FillDTA(char* dta, struct FileInfoBlock* fib_ptr) {
 // ---------------------------------------------------------------------------
 void gemdos_fsrename() {
   char* oldname=NULL; char* newname=NULL;
-  oldname =  return (unsigned char*)v; ;
-  newname =  return (unsigned char*)v; ;
+  oldname = (unsigned char*)ctx[8];
+  newname = (unsigned char*)ctx[9];
 
   if( -(BOOLEAN)(0!=Rename(oldname ,newname ))) {
     ctx[0] = E_OK;
@@ -3724,7 +3724,7 @@ void gemdos_fsrename() {
 // ---------------------------------------------------------------------------
 void gemdos_fmkdir() {
   char* dirname=NULL;
-  dirname =  return (unsigned char*)v; ;
+  dirname = (unsigned char*)ctx[8];
   if( CreateDir(dirname )) {
     ctx[0] = E_OK;
   } else {
@@ -3740,7 +3740,7 @@ void gemdos_fmkdir() {
 // ---------------------------------------------------------------------------
 void gemdos_frmdir() {
   char* dirname=NULL;
-  dirname =  return (unsigned char*)v; ;
+  dirname = (unsigned char*)ctx[8];
   if( -(BOOLEAN)(0!=DeleteFile(dirname ))) {
     ctx[0] = E_OK;
   } else {
@@ -3756,7 +3756,7 @@ void gemdos_frmdir() {
 // ---------------------------------------------------------------------------
 void gemdos_fchdir() {
   char* pathname=NULL;
-  pathname =  return (unsigned char*)v; ;
+  pathname = (unsigned char*)ctx[8];
   // Use Dsetpath logic
   gemdos_dsetpath();
 	return ;
@@ -3768,7 +3768,7 @@ void gemdos_fchdir() {
 // D0 = DTA pointer
 // ---------------------------------------------------------------------------
 void gemdos_fgetdta() {
-  ctx[0] =  return (long)v; ;
+  ctx[0] = (long)ch[0];
 	return ;
 }
 
@@ -3780,7 +3780,7 @@ void gemdos_fgetdta() {
 void gemdos_fsetdta() {
   long ptr;
   ptr = ctx[1];
-  gem_dta = (long)  return (unsigned char*)v; ;
+  gem_dta = (long)(unsigned char*)ctx[8];
   ctx[0] = E_OK;
 	return ;
 }
@@ -3803,7 +3803,7 @@ void gemdos_malloc() {
   if( ptr == 0) {
     ctx[0] = 0;
   } else {
-    ctx[0] =  return (long)v; ;
+    ctx[0] = (long)ch[0];
   }
 	return ;
 }
@@ -3815,11 +3815,11 @@ void gemdos_malloc() {
 // ---------------------------------------------------------------------------
 void gemdos_mfree() {
   long ptr;
-  ptr = (long)  return (unsigned char*)v; ;
+  ptr = (long)(unsigned char*)ctx[8];
   // Note: AmigaOS FreeMem needs the size, which we don't know
   // In a real implementation, we'd track allocated block sizes
   // For now, free with a reasonable size or just stub
-  FreeMem( return (APTR)v;  ,(ULONG) 0 );
+  FreeMem((APTR)ptr, (ULONG)0);
   ctx[0] = E_OK;
 	return ;
 }
@@ -3937,7 +3937,7 @@ long load_prg(char* filename) {
 void gemdos_pexec() {
   long mode; char* filename=NULL;
   mode = ctx[1];
-  filename =  return (unsigned char*)v; ;
+  filename = (unsigned char*)ctx[8];
 
   if( mode == 0) {
     ctx[0] = load_prg(filename);
@@ -4078,7 +4078,6 @@ void bios_dispatch() {
 
   default:
     ctx[0] = E_ERROR;
-    break;
   }
 	return ;
 }
@@ -4123,7 +4122,7 @@ try {
   if( dev == 0) {
     ch[0] = 0;
     Read(Input() ,(APTR) (unsigned long) ch ,1 );
-    ctx[0] =  return (long)v; ;
+    ctx[0] = (long)ch[0];
   } else {
     ctx[0] = E_ERROR;
   }
@@ -4148,7 +4147,7 @@ try {
 	exception = 0 ;
   dev = ctx[1];
   if( dev == 0) {
-    ch[0] =  return (unsigned char)v; ;
+    ch[0] = (unsigned char)ctx[1];
     Write(Output() ,(APTR) (unsigned long) ch ,1 );
     ctx[0] = E_OK;
   } else {
@@ -4170,11 +4169,11 @@ try {
 // ---------------------------------------------------------------------------
 void bios_rwabs() {
   long rw, dev, sector, count; char* buf=NULL;
-  rw =  return (int)v; ;
+  rw = (int)ctx[1];
   dev = ctx[1];
   sector = ctx[2];
   count = ctx[3];
-  buf =  return (unsigned char*)v; ;
+  buf = (unsigned char*)ctx[8];
   // Stub - no raw disk access on AmigaOS
   ctx[0] = E_ERROR;
 	return ;
@@ -4332,7 +4331,6 @@ void xbios_dispatch() {
 
   default:
     ctx[0] = E_ERROR;
-    break;
   }
 	return ;
 }
@@ -5409,7 +5407,7 @@ void gem_wind_open() {
     gem_wind_full_w[idx] = ctx[6];
     gem_wind_full_h[idx] = ctx[7];
     title[0] = 0;
-    gem_window_list[idx] =  struct Window *win; struct NewWindow nw; long flags = WFLG_SMART_REFRESH | WFLG_ACTIVATE | WFLG_GIMMEZEROZERO; long idcmp = IDCMP_CLOSEWINDOW | IDCMP_REFRESHWINDOW | IDCMP_SIZEVERIFY | IDCMP_NEWSIZE | IDCMP_MOUSEBUTTONS | IDCMP_MOUSEMOVE; if (kind & 2) flags |= WFLG_CLOSEGADGET; if (kind & 4) flags |= WFLG_DEPTHGADGET; if (kind & 8) flags |= WFLG_DRAGBAR; if (kind & 16) flags |= WFLG_SIZEGADGET; nw.LeftEdge = (long)gem_wind_x[idx] ; nw.TopEdge = (long)gem_wind_y[idx] ; nw.Width = (long)gem_wind_w[idx] ; nw.Height = (long)gem_wind_h[idx] ; nw.DetailPen = 0; nw.BlockPen = 1; nw.Title = (STRPTR)title ; nw.Flags = flags; nw.IDCMPFlags = idcmp; nw.Type = WBENCHSCREEN; nw.FirstGadget = NULL; nw.CheckMark = NULL; nw.Screen = NULL; nw.BitMap = NULL; nw.MinWidth = 50; nw.MinHeight = 30; nw.MaxWidth = 2048; nw.MaxHeight = 2048; win = OpenWindow(&nw); return (unsigned long)win; ;
+    gem_window_list[idx] = gem_OpenWindow(gem_wind_x[idx], gem_wind_y[idx], gem_wind_w[idx], gem_wind_h[idx], (STRPTR)title, gem_wind_kind[idx]);
     if( gem_window_list[idx] != 0) {
       ctx[0] = 1;
     } else {
@@ -5427,7 +5425,7 @@ void gem_wind_close() {
   idx = gem_wind_find_handle(handle);
   if( idx >= 0) {
     if( gem_window_list[idx] != 0) {
-       HideWindow((struct Window *) return (struct Window*)v;  ); ;
+       HideWindow((struct Window *)gem_window_list[idx]); ;
     }
     gem_wind_state[idx] = WS_CLOSED;
     ctx[0] = 1;
@@ -5443,7 +5441,7 @@ void gem_wind_delete() {
   idx = gem_wind_find_handle(handle);
   if( idx >= 0) {
     if( gem_window_list[idx] != 0) {
-       CloseWindow((struct Window *) return (struct Window*)v;  ); ;
+       CloseWindow((struct Window *)gem_window_list[idx]); ;
       gem_window_list[idx] = 0;
     }
     gem_wind_state[idx] = WS_CLOSED;
@@ -5497,7 +5495,6 @@ void gem_wind_get() {
       ctx[2] = gem_wind_y[idx];
       ctx[3] = gem_wind_w[idx];
       ctx[4] = gem_wind_h[idx];
-    	break;
     }
     ctx[0] = E_OK;
   } else {
@@ -5521,27 +5518,27 @@ void gem_wind_set() {
       gem_wind_x[idx] = ctx[5]; gem_wind_y[idx] = ctx[6];
       gem_wind_w[idx] = ctx[7]; gem_wind_h[idx] = ctx[8];
       if( gem_window_list[idx] != 0) {
-         MoveWindow((struct Window *) return (struct Window*)v;  , (long)gem_wind_x[idx] , (long)gem_wind_y[idx] ); ;
-         SizeWindow((struct Window *) return (struct Window*)v;  , (long)gem_wind_w[idx] , (long)gem_wind_h[idx] ); ;
+         MoveWindow((struct Window *)gem_window_list[idx], (long)gem_wind_x[idx] , (long)gem_wind_y[idx] ); ;
+         SizeWindow((struct Window *)gem_window_list[idx], (long)gem_wind_w[idx] , (long)gem_wind_h[idx] ); ;
       }
     	break;
     case 3 :// WF_NEWSIZE
       gem_wind_w[idx] = ctx[5]; gem_wind_h[idx] = ctx[6];
       if( gem_window_list[idx] != 0) {
-         SizeWindow((struct Window *) return (struct Window*)v;  , (long)gem_wind_w[idx] , (long)gem_wind_h[idx] ); ;
+         SizeWindow((struct Window *)gem_window_list[idx], (long)gem_wind_w[idx] , (long)gem_wind_h[idx] ); ;
       }
     	break;
     case 4 :// WF_ICONIFY
       gem_wind_state[idx] = WS_ICONIFIED;
       if( gem_window_list[idx] != 0) {
-         HideWindow((struct Window *) return (struct Window*)v;  ); ;
+         HideWindow((struct Window *)gem_window_list[idx]); ;
       }
     	break;
     case 5 :// WF_TOP
     	break;
     case 10 :// WF_NAME
       if( gem_window_list[idx] != 0) {
-         WindowTitle((struct Window *) return (struct Window*)v;  , (STRPTR) return (unsigned char*)v;  ); ;
+         WindowTitle((struct Window *)gem_window_list[idx], (STRPTR)title); ;
       }
     	break;
     }
@@ -5878,7 +5875,7 @@ void gem_graf_mouse() {
   }
 
   // Attempt to update the pointer via AmigaOS Intuition if a window is open
-  win =  return (struct Window*)v; ;
+  win = (struct Window*)gem_window_list[0];
   if( (long) (gem_mouse_visible & (long) win )!= (long) 0) {
     if( gem_mouse_user_active) {
        SetPointer((struct Window *)win , (UWORD *)gem_mouse_user_data , (short)16 , (short)16 , (short)gem_mouse_user_hotx , (short)gem_mouse_user_hoty ); ;
@@ -5964,22 +5961,22 @@ void gem_graf_accel() {
 void vdi_init_rgb() {
   long v;
   char vdi_rgb2[48]; // 16 colours x 3 bytes (R,G,B)
-  v = 0; vdi_rgb2[0] =  return (unsigned char)v; ; vdi_rgb2[1] =  return (unsigned char)v; ; vdi_rgb2[2] =  return (unsigned char)v; ;
-  v = 0; vdi_rgb2[3] =  return (unsigned char)v; ; vdi_rgb2[4] =  return (unsigned char)v; ; v = 200; vdi_rgb2[5] =  return (unsigned char)v; ;
-  v = 0; vdi_rgb2[6] =  return (unsigned char)v; ; v = 200; vdi_rgb2[7] =  return (unsigned char)v; ; v = 0; vdi_rgb2[8] =  return (unsigned char)v; ;
-  v = 0; vdi_rgb2[9] =  return (unsigned char)v; ; v = 200; vdi_rgb2[10] =  return (unsigned char)v; ; v = 200; vdi_rgb2[11] =  return (unsigned char)v; ;
-  v = 200; vdi_rgb2[12] =  return (unsigned char)v; ; v = 0; vdi_rgb2[13] =  return (unsigned char)v; ; v = 0; vdi_rgb2[14] =  return (unsigned char)v; ;
-  v = 200; vdi_rgb2[15] =  return (unsigned char)v; ; v = 0; vdi_rgb2[16] =  return (unsigned char)v; ; v = 200; vdi_rgb2[17] =  return (unsigned char)v; ;
-  v = 200; vdi_rgb2[18] =  return (unsigned char)v; ; v = 200; vdi_rgb2[19] =  return (unsigned char)v; ; v = 0; vdi_rgb2[20] =  return (unsigned char)v; ;
-  v = 200; vdi_rgb2[21] =  return (unsigned char)v; ; v = 200; vdi_rgb2[22] =  return (unsigned char)v; ; v = 200; vdi_rgb2[23] =  return (unsigned char)v; ;
-  v = 100; vdi_rgb2[24] =  return (unsigned char)v; ; v = 100; vdi_rgb2[25] =  return (unsigned char)v; ; v = 100; vdi_rgb2[26] =  return (unsigned char)v; ;
-  v = 0; vdi_rgb2[27] =  return (unsigned char)v; ; v = 0; vdi_rgb2[28] =  return (unsigned char)v; ; v = 100; vdi_rgb2[29] =  return (unsigned char)v; ;
-  v = 0; vdi_rgb2[30] =  return (unsigned char)v; ; v = 100; vdi_rgb2[31] =  return (unsigned char)v; ; v = 0; vdi_rgb2[32] =  return (unsigned char)v; ;
-  v = 0; vdi_rgb2[33] =  return (unsigned char)v; ; v = 100; vdi_rgb2[34] =  return (unsigned char)v; ; v = 100; vdi_rgb2[35] =  return (unsigned char)v; ;
-  v = 100; vdi_rgb2[36] =  return (unsigned char)v; ; v = 0; vdi_rgb2[37] =  return (unsigned char)v; ; v = 0; vdi_rgb2[38] =  return (unsigned char)v; ;
-  v = 100; vdi_rgb2[39] =  return (unsigned char)v; ; v = 0; vdi_rgb2[40] =  return (unsigned char)v; ; v = 100; vdi_rgb2[41] =  return (unsigned char)v; ;
-  v = 100; vdi_rgb2[42] =  return (unsigned char)v; ; v = 100; vdi_rgb2[43] =  return (unsigned char)v; ; v = 0; vdi_rgb2[44] =  return (unsigned char)v; ;
-  v = 255; vdi_rgb2[45] =  return (unsigned char)v; ; v = 255; vdi_rgb2[46] =  return (unsigned char)v; ; v = 255; vdi_rgb2[47] =  return (unsigned char)v; ;
+  v = 0; vdi_rgb2[0] =  (unsigned char)v; vdi_rgb2[1] =  (unsigned char)v; vdi_rgb2[2] =  (unsigned char)v;
+  v = 0; vdi_rgb2[3] =  (unsigned char)v; vdi_rgb2[4] =  (unsigned char)v; v = 200; vdi_rgb2[5] =  (unsigned char)v;
+  v = 0; vdi_rgb2[6] =  (unsigned char)v; v = 200; vdi_rgb2[7] =  (unsigned char)v; v = 0; vdi_rgb2[8] =  (unsigned char)v;
+  v = 0; vdi_rgb2[9] =  (unsigned char)v; v = 200; vdi_rgb2[10] =  (unsigned char)v; v = 200; vdi_rgb2[11] =  (unsigned char)v;
+  v = 200; vdi_rgb2[12] =  (unsigned char)v; v = 0; vdi_rgb2[13] =  (unsigned char)v; v = 0; vdi_rgb2[14] =  (unsigned char)v;
+  v = 200; vdi_rgb2[15] =  (unsigned char)v; v = 0; vdi_rgb2[16] =  (unsigned char)v; v = 200; vdi_rgb2[17] =  (unsigned char)v;
+  v = 200; vdi_rgb2[18] =  (unsigned char)v; v = 200; vdi_rgb2[19] =  (unsigned char)v; v = 0; vdi_rgb2[20] =  (unsigned char)v;
+  v = 200; vdi_rgb2[21] =  (unsigned char)v; v = 200; vdi_rgb2[22] =  (unsigned char)v; v = 200; vdi_rgb2[23] =  (unsigned char)v;
+  v = 100; vdi_rgb2[24] =  (unsigned char)v; v = 100; vdi_rgb2[25] =  (unsigned char)v; v = 100; vdi_rgb2[26] =  (unsigned char)v;
+  v = 0; vdi_rgb2[27] =  (unsigned char)v; v = 0; vdi_rgb2[28] =  (unsigned char)v; v = 100; vdi_rgb2[29] =  (unsigned char)v;
+  v = 0; vdi_rgb2[30] =  (unsigned char)v; v = 100; vdi_rgb2[31] =  (unsigned char)v; v = 0; vdi_rgb2[32] =  (unsigned char)v;
+  v = 0; vdi_rgb2[33] =  (unsigned char)v; v = 100; vdi_rgb2[34] =  (unsigned char)v; v = 100; vdi_rgb2[35] =  (unsigned char)v;
+  v = 100; vdi_rgb2[36] =  (unsigned char)v; v = 0; vdi_rgb2[37] =  (unsigned char)v; v = 0; vdi_rgb2[38] =  (unsigned char)v;
+  v = 100; vdi_rgb2[39] =  (unsigned char)v; v = 0; vdi_rgb2[40] =  (unsigned char)v; v = 100; vdi_rgb2[41] =  (unsigned char)v;
+  v = 100; vdi_rgb2[42] =  (unsigned char)v; v = 100; vdi_rgb2[43] =  (unsigned char)v; v = 0; vdi_rgb2[44] =  (unsigned char)v;
+  v = 255; vdi_rgb2[45] =  (unsigned char)v; v = 255; vdi_rgb2[46] =  (unsigned char)v; v = 255; vdi_rgb2[47] =  (unsigned char)v;
 	return ;
 }
 void vdi_init_line_pats() {
@@ -6082,7 +6079,7 @@ void vdi_pline() {
       case 1: SetDrMd(rp, JAM1); break;
       case 2: SetDrMd(rp, JAM2); break;
       case 3: SetDrMd(rp, INVERS_XOR); break;
-      default: SetDrMd(rp, JAM1); break;
+      default: SetDrMd(rp, JAM1);
     }
     { int lt = (int)vdi_line_type;
       if( lt >= 0 && lt < 6) { SetDrPt(rp, vdi_line_pats[lt]);}
@@ -6235,7 +6232,7 @@ void vdi_circle() {
       case 1: SetDrMd(rp, JAM1); break;
       case 2: SetDrMd(rp, JAM2); break;
       case 3: SetDrMd(rp, INVERS_XOR); break;
-      default: SetDrMd(rp, JAM1); break;
+      default: SetDrMd(rp, JAM1);
     }
     { int lt = (int)vdi_line_type;
       if( lt >= 0 && lt < 6) { SetDrPt(rp, vdi_line_pats[lt]);}
@@ -6278,7 +6275,7 @@ void vdi_ellipse() {
       case 1: SetDrMd(rp, JAM1); break;
       case 2: SetDrMd(rp, JAM2); break;
       case 3: SetDrMd(rp, INVERS_XOR); break;
-      default: SetDrMd(rp, JAM1); break;
+      default: SetDrMd(rp, JAM1);
     }
     { int lt = (int)vdi_line_type;
       if( lt >= 0 && lt < 6) { SetDrPt(rp, vdi_line_pats[lt]);}
@@ -6324,7 +6321,7 @@ void vdi_ellarc() {
       case 1: SetDrMd(rp, JAM1); break;
       case 2: SetDrMd(rp, JAM2); break;
       case 3: SetDrMd(rp, INVERS_XOR); break;
-      default: SetDrMd(rp, JAM1); break;
+      default: SetDrMd(rp, JAM1);
     }
     { int lt = (int)vdi_line_type;
       if( lt >= 0 && lt < 6) { SetDrPt(rp, vdi_line_pats[lt]);}
@@ -6398,7 +6395,7 @@ void vdi_arc() {
       case 1: SetDrMd(rp, JAM1); break;
       case 2: SetDrMd(rp, JAM2); break;
       case 3: SetDrMd(rp, INVERS_XOR); break;
-      default: SetDrMd(rp, JAM1); break;
+      default: SetDrMd(rp, JAM1);
     }
     { int lt = (int)vdi_line_type;
       if( lt >= 0 && lt < 6) { SetDrPt(rp, vdi_line_pats[lt]);}
@@ -6472,7 +6469,7 @@ void vdi_rbox() {
       case 1: SetDrMd(rp, JAM1); break;
       case 2: SetDrMd(rp, JAM2); break;
       case 3: SetDrMd(rp, INVERS_XOR); break;
-      default: SetDrMd(rp, JAM1); break;
+      default: SetDrMd(rp, JAM1);
     }
     { int lt = (int)vdi_line_type;
       if( lt >= 0 && lt < 6) { SetDrPt(rp, vdi_line_pats[lt]);}
@@ -6627,7 +6624,7 @@ void vdi_bezier() {
       case 1: SetDrMd(rp, JAM1); break;
       case 2: SetDrMd(rp, JAM2); break;
       case 3: SetDrMd(rp, INVERS_XOR); break;
-      default: SetDrMd(rp, JAM1); break;
+      default: SetDrMd(rp, JAM1);
     }
     { int lt = (int)vdi_line_type;
       if( lt >= 0 && lt < 6) { SetDrPt(rp, vdi_line_pats[lt]);}
@@ -6988,8 +6985,8 @@ void gem_init_font_8x16() {
 
   // Fill location table (char N starts at N*16 bytes)
   for ( i = 0 ; i <= 255; i = i + 1) {
-    gem_font_loc_8x16[i * 2] =  return (unsigned char)v; ;
-    gem_font_loc_8x16[i * 2 + 1] =  return (unsigned char)v; ;
+    gem_font_loc_8x16[i * 2] = (unsigned char)(i * 16);
+    gem_font_loc_8x16[i * 2 + 1] = (unsigned char)(i * 16 / 256);
   }
 
   // Atari ST 8x16 system font data (256 glyphs, 16 bytes each)
@@ -7270,7 +7267,7 @@ void gem_init_font_8x16() {
         f[c * 16 + r] = glyphs[c][r];
   ;
   // Allocate and populate TextFont structure
-  gem_font_8x16 =  return (struct TextFont*)v; ;
+  gem_font_8x16 = (long)AllocMem(120, 65538);
   if( gem_font_8x16) {
      struct TextFont *tf = (struct TextFont *)gem_font_8x16; tf->tf_Message.mn_ReplyPort=NULL; tf->tf_Message.mn_Length=sizeof(struct TextFont); tf->tf_YSize=16; tf->tf_Style=0; tf->tf_Flags=0; tf->tf_XSize=8; tf->tf_Baseline=13; tf->tf_BoldSmear=0; tf->tf_Accessors=0; tf->tf_LoChar=0; tf->tf_HiChar=255; tf->tf_CharData=(APTR)gem_font_data_8x16; tf->tf_Modulo=8; tf->tf_CharLoc=(APTR)gem_font_loc_8x16; tf->tf_CharSpace=(APTR)gem_font_width_8x16; tf->tf_CharKern=NULL; ;
     AddFont(gem_font_8x16 );
@@ -7288,7 +7285,7 @@ void gem_init_font_8x8() {
   }
 
   for ( i = 0 ; i <= 255; i = i + 1) {
-    gem_font_loc_8x8[i] =  return (unsigned char)v; ;
+    gem_font_loc_8x8[i] = (unsigned char)(i * 8);
   }
 
   // Downsample 8x16 to 8x8 by taking every 2nd row
@@ -7298,7 +7295,7 @@ void gem_init_font_8x8() {
     }
   }
 
-  gem_font_8x8 =  return (struct TextFont*)v; ;
+  gem_font_8x8 = (long)AllocMem(120, 65538);
   if( gem_font_8x8) {
      struct TextFont *tf = (struct TextFont *)gem_font_8x8; tf->tf_Message.mn_ReplyPort=NULL; tf->tf_Message.mn_Length=sizeof(struct TextFont); tf->tf_YSize=8; tf->tf_Style=0; tf->tf_Flags=0; tf->tf_XSize=8; tf->tf_Baseline=7; tf->tf_BoldSmear=0; tf->tf_Accessors=0; tf->tf_LoChar=0; tf->tf_HiChar=255; tf->tf_CharData=(APTR)gem_font_data_8x8; tf->tf_Modulo=8; tf->tf_CharLoc=(APTR)gem_font_loc_8x8; tf->tf_CharSpace=(APTR)gem_font_width_8x8; tf->tf_CharKern=NULL; ;
     AddFont(gem_font_8x8 );
@@ -7412,7 +7409,7 @@ try {
     PutStr("Testing...\n" );
 
     // Test Cconws ($09): write a string via direct call
-    ctx[8] = (long)  return (unsigned char*)v; ;
+    ctx[8] = (long)gem_font_8x16;
     temp_string[0] = 72; temp_string[1] = 101; temp_string[2] = 108; temp_string[3] = 108; temp_string[4] = 111;
     temp_string[5] = 0;
     gemdos_cconws();
