@@ -23,6 +23,8 @@ Loads an Atari ST PRG file into memory. File extension is optional.
 
 Runs the built-in test suite (GEMDOS function tests).
 
+![Sake running GEMBENCH](gembench_screenshot.png)
+
 ## Status
 
 Trap dispatchers and function stubs for all five Atari ST trap interfaces:
