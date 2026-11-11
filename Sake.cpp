@@ -2916,7 +2916,6 @@ APTR old_trap2 = (APTR) NULL;
 APTR old_trap13 = (APTR) NULL;
 APTR old_trap14 = (APTR) NULL;
 unsigned char* trap_stub_mem = NULL;
-long gem_regs[16];
 long ctx[32];    // Saved register context + extended params
 long gem_handles[16]; // GEMDOS handle -> AmigaOS BPTR mapping
 long gem_dta;                  // Disk Transfer Address (for Fsfirst/Fsnext)
@@ -5324,51 +5323,32 @@ void gem_fsel_exinput() {
   long path_ptr = ctx[8];
   long file_ptr = ctx[9];
   if (!path_ptr || !file_ptr) { ctx[0] = 0; ctx[1] = 0; return; }
-  extern unsigned long asl_base, reqtools_base;
+  extern unsigned long asl_base;
   struct FileRequester *fr;
   char *path = (char *)path_ptr;
   char *file = (char *)file_ptr;
   long ok = 0;
-  if (asl_base) {
-    fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Select File", TAG_DONE);
-    if (fr) {
-      if (AslRequestTags(fr, TAG_DONE)) {
-        ok = 1;
-        if (fr->fr_Drawer) {
-          int len = strlen(fr->fr_Drawer);
-          if (len < 126) {
-            strcpy(path, fr->fr_Drawer);
-            if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
-              path[len] = '/';
-              path[len+1] = 0;
-            }
-          }
-        }
-        if (fr->fr_File) {
-          strncpy(file, fr->fr_File, 12);
-          file[12] = 0;
-        }
-      }
-      FreeAslRequest(fr);
-    }
-  } else if (reqtools_base) {
-    struct rtFileRequester *rfr = (struct rtFileRequester *)rtAllocRequest(RT_FILEREQ, NULL);
-    if (rfr) {
-      if (rtFileRequest(rfr, file, "Select File", TAG_DONE)) {
-        ok = 1;
-        if (rfr->Dir) {
-          int len = strlen(rfr->Dir);
-          if (len < 126) {
-            strcpy(path, rfr->Dir);
-            if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
-              path[len] = '/';
-              path[len+1] = 0;
-            }
+  if (!asl_base) { ctx[1] = 0; return; }
+  fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Select File", TAG_DONE);
+  if (fr) {
+    if (AslRequestTags(fr, TAG_DONE)) {
+      ok = 1;
+      if (fr->fr_Drawer) {
+        int len = strlen(fr->fr_Drawer);
+        if (len < 126) {
+          strcpy(path, fr->fr_Drawer);
+          if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+            path[len] = '/';
+            path[len+1] = 0;
           }
         }
       }
-      rtFreeRequest((APTR)rfr);
+      if (fr->fr_File) {
+        strncpy(file, fr->fr_File, 12);
+        file[12] = 0;
+      }
     }
+    FreeAslRequest(fr);
   }
   ctx[1] = ok;
   return;
@@ -5378,51 +5358,32 @@ void gem_fsel_exoutput() {
   long path_ptr = ctx[8];
   long file_ptr = ctx[9];
   if (!path_ptr || !file_ptr) { ctx[0] = 0; ctx[1] = 0; return; }
-  extern unsigned long asl_base, reqtools_base;
+  extern unsigned long asl_base;
   struct FileRequester *fr;
   char *path = (char *)path_ptr;
   char *file = (char *)file_ptr;
   long ok = 0;
-  if (asl_base) {
-    fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Save File", TAG_DONE);
-    if (fr) {
-      if (AslRequestTags(fr, TAG_DONE)) {
-        ok = 1;
-        if (fr->fr_Drawer) {
-          int len = strlen(fr->fr_Drawer);
-          if (len < 126) {
-            strcpy(path, fr->fr_Drawer);
-            if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
-              path[len] = '/';
-              path[len+1] = 0;
-            }
-          }
-        }
-        if (fr->fr_File) {
-          strncpy(file, fr->fr_File, 12);
-          file[12] = 0;
-        }
-      }
-      FreeAslRequest(fr);
-    }
-  } else if (reqtools_base) {
-    struct rtFileRequester *rfr = (struct rtFileRequester *)rtAllocRequest(RT_FILEREQ, NULL);
-    if (rfr) {
-      if (rtFileRequest(rfr, file, "Save File", TAG_DONE)) {
-        ok = 1;
-        if (rfr->Dir) {
-          int len = strlen(rfr->Dir);
-          if (len < 126) {
-            strcpy(path, rfr->Dir);
-            if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
-              path[len] = '/';
-              path[len+1] = 0;
-            }
+  if (!asl_base) { ctx[1] = 0; return; }
+  fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Save File", TAG_DONE);
+  if (fr) {
+    if (AslRequestTags(fr, TAG_DONE)) {
+      ok = 1;
+      if (fr->fr_Drawer) {
+        int len = strlen(fr->fr_Drawer);
+        if (len < 126) {
+          strcpy(path, fr->fr_Drawer);
+          if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+            path[len] = '/';
+            path[len+1] = 0;
           }
         }
       }
-      rtFreeRequest((APTR)rfr);
+      if (fr->fr_File) {
+        strncpy(file, fr->fr_File, 12);
+        file[12] = 0;
+      }
     }
+    FreeAslRequest(fr);
   }
   ctx[1] = ok;
   return;
@@ -7459,15 +7420,28 @@ try {
     }
   } else {
     PutStr("Sake Atari Emulator\n" );
-    PutStr("Loading: GEMBENCH\n" );
-    addr = load_prg("GEMBENCH" );
-    if (addr ) {
-      PutStr("Loaded at $" );
-      Printf("%lx\n", addr );
-      PutStr("\n" );
-    } else {
-      PutStr("Failed to load GEMBENCH\n" );
-    }
+    PutStr("Testing...\n" );
+
+    // Test Cconws ($09): write a string via direct call
+    ctx[8] = (long)  return (unsigned char*)v; ;
+    temp_string[0] = 72; temp_string[1] = 101; temp_string[2] = 108; temp_string[3] = 108; temp_string[4] = 111;
+    temp_string[5] = 0;
+    gemdos_cconws();
+
+    // Test Dgetdrv ($0F)
+    gemdos_dgetdrv();
+    PutStr("Default drive: " );
+    Printf("%%ld\n" ,(ULONG) ctx[0] );
+
+    // Test Tgetdate ($31) and Tgettime ($33)
+    gemdos_tgetdate();
+    gemdos_tgettime();
+    PutStr("Date: " );
+    Printf("%%ld" ,(ULONG) ctx[0] );
+    PutStr(", Time: " );
+    Printf("%%ld\n" ,(ULONG) ctx[0] );
+
+    PutStr("\nAll GEMDOS functions completed\n" );
   }
   remove_traps();
 } catch(...) {}
