@@ -1,11 +1,11 @@
 # <ins>S</ins>ake <ins>A</ins>tari <ins>K</ins>ernel <ins>E</ins>mulator for AmigaOS
 
 Sake maps Atari ST system calls to native AmigaOS libraries:
-- **GEMDOS** (Trap #1) → `dos.library` / `exec.library`
-- **BIOS** (Trap #2) → AmigaOS equivalents
-- **XBIOS** (Trap #2, extended) → AmigaOS equivalents  
-- **AES** (Trap #2, $C8) → `intuition.library` / `gadtools.library` / `asl.library`
-- **VDI** (Trap #2, $C9) → `graphics.library`
+- **GEMDOS** (Trap #1) -> `dos.library` / `exec.library`
+- **BIOS** (Trap #13) -> AmigaOS equivalents
+- **XBIOS** (Trap #14) -> AmigaOS equivalents
+- **AES** (Trap #2, D0=$C8) -> `intuition.library` / `gadtools.library` / `reqtools.library`
+- **VDI** (Trap #2, D0=$C9) -> `graphics.library`
 
 ## Build
 
@@ -29,11 +29,11 @@ Trap dispatchers and function stubs for all five Atari ST trap interfaces:
 
 | Trap   | Functions |
 |--------|-----------|
-| GEMDOS | 30+ — file I/O, console, directory, memory, process, date/time |
-| BIOS   | 12 — console I/O, tick calibration, drive map, keyboard shift |
-| XBIOS  | 18 — screen, mouse, timer, palette, floppy, RS232, random, cookie jar |
-| AES    | 60+ — window, menu, form, event, graphics, file selector, object |
-| VDI    | 30+ — workstation, drawing, attribute, inquiry functions via SELECT dispatch |
+| GEMDOS | 30+ -- file I/O, console, directory, memory, process, date/time |
+| BIOS   | 12 -- console I/O, tick calibration, drive map, keyboard shift |
+| XBIOS  | 18 -- screen, mouse, timer, palette, floppy, RS232, random, cookie jar |
+| AES    | 60+ -- window, menu, form, event, graphics, file selector, object |
+| VDI    | 30+ -- workstation, drawing, attribute, inquiry functions via SELECT dispatch |
 
 Notable implementations:
 - **Pexec ($2D) LoadSeg mode 0** parses Atari PRG headers and loads text/data/bss
@@ -41,15 +41,15 @@ Notable implementations:
 - **Font registration** maps the full Atari ST character set (256 glyphs, 8x16 and
   8x8) to native AmigaOS `TextFont` structures via `AddFont()`. Bitmap data is
   embedded as a static glyph table matching the ST ROM layout.
-- **Mouse pointers** — four predefined shapes (arrow, hourglass, I-beam, pointing
+- **Mouse pointers** -- four predefined shapes (arrow, hourglass, I-beam, pointing
   finger) initialized in pure PortablE with inline sprite data.
-- **GEM radio buttons** — mutual-exclusive radio button groups mapped to native
-  gadtools `CreateGadgetA(RADIO_KIND, …)` gadgets. `gem_form_do` creates a
+- **GEM radio buttons** -- mutual-exclusive radio button groups mapped to native
+  gadtools `CreateGadgetA(RADIO_KIND, ...)` gadgets. `gem_form_do` creates a
   native window via `gem_wind_open`, attaches radio gadgets derived from
   GEM object specs, and runs an IDCMP event loop with gadget clicks
   synchronised back to GEM `SELECTED` state. Objects of type 21 (`G_RBUTTON`)
   are drawn with filled circles in the GEM form overlay.
-- **Minimal NATIVE** — inline C is largely avoided; AmigaOS calls like
+- **Minimal NATIVE** -- inline C is largely avoided; AmigaOS calls like
   `SetPointer`/`ClearPointer`, `TextFont` struct setup, and
   `intuition.library` `EasyRequest()` for GEM alerts are wrapped as
   single-line `IS NATIVE` PortablE declarations.
@@ -59,7 +59,7 @@ line patterns, and tracks workstation state (handle, resolution, drawing
 attributes, clip rectangle, cursor). Drawing operations read coordinate
 pairs from the AES `ptrin` array and update `vdi_cur_x/y`.
 
-Hardware-level BIOS calls (Rwabs, Flop*, DMA, MFP) return `E_ERROR` or 0 —
+Hardware-level BIOS calls (Rwabs, Flop*, DMA, MFP) return `E_ERROR` or 0 --
 these need Amiga-side emulation of ST hardware.
 
 VDI dispatch routes 30+ function numbers (opnvwk, clsvwk, pline, pmarker,
