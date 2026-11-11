@@ -23,6 +23,8 @@ Loads an Atari ST PRG file into memory. File extension is optional.
 
 Runs the built-in test suite (GEMDOS function tests).
 
+![Sake running GEMBENCH](gembench_screenshot.png)
+
 ## Status
 
 Trap dispatchers and function stubs for all five Atari ST trap interfaces:
@@ -51,7 +53,7 @@ Notable implementations:
   are drawn with filled circles in the GEM form overlay.
 - **Minimal NATIVE** -- inline C is largely avoided; AmigaOS calls like
   `SetPointer`/`ClearPointer`, `TextFont` struct setup, and
-  `intuition.library` `EasyRequest()` for GEM alerts are wrapped as
+  `reqtools.library` `EasyRequest()` for GEM alerts are wrapped as
   single-line `IS NATIVE` PortablE declarations.
 
 VDI implements colour palette (16 standard Atari colours via `vdi_rgb`),
