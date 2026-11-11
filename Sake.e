@@ -897,18 +897,8 @@ PROC load_prg(filename:PTR TO CHAR)
       fh := Open(fname_buf, 1005)
       IF fh = 0
         StrCopy(fname_buf, filename)
-        StrAdd(fname_buf, '.prg')
+        StrAdd(fname_buf, '.TOS')
         fh := Open(fname_buf, 1005)
-        IF fh = 0
-          StrCopy(fname_buf, filename)
-          StrAdd(fname_buf, '.TOS')
-          fh := Open(fname_buf, 1005)
-          IF fh = 0
-            StrCopy(fname_buf, filename)
-            StrAdd(fname_buf, '.tos')
-            fh := Open(fname_buf, 1005)
-          ENDIF
-        ENDIF
       ENDIF
     ENDIF
   ENDIF

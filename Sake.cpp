@@ -3865,15 +3865,7 @@ long load_prg(char* filename) {
     fh = Open(fname_buf, 1005);
   }
   if (!fh) {
-    snprintf(fname_buf, sizeof(fname_buf), "%s.prg", filename);
-    fh = Open(fname_buf, 1005);
-  }
-  if (!fh) {
     snprintf(fname_buf, sizeof(fname_buf), "%s.TOS", filename);
-    fh = Open(fname_buf, 1005);
-  }
-  if (!fh) {
-    snprintf(fname_buf, sizeof(fname_buf), "%s.tos", filename);
     fh = Open(fname_buf, 1005);
   }
   if (fh) {
