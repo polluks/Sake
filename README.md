@@ -51,7 +51,7 @@ Notable implementations:
   are drawn with filled circles in the GEM form overlay.
 - **Minimal NATIVE** -- inline C is largely avoided; AmigaOS calls like
   `SetPointer`/`ClearPointer`, `TextFont` struct setup, and
-  `reqtools.library` `EasyRequest()` for GEM alerts are wrapped as
+  `intuition.library` `EasyRequest()` for GEM alerts are wrapped as
   single-line `IS NATIVE` PortablE declarations.
 
 VDI implements colour palette (16 standard Atari colours via `vdi_rgb`),

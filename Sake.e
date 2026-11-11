@@ -1093,11 +1093,11 @@ ENDPROC
 PROC gemdos_tgettime()
   DEF now:datestamp, total_secs, hour, mins, sec
   DateStamp(now)
-  total_secs := (now.minute * 60) + (now.tick / 50)
+  total_secs := now.minute * 60 + now.tick / 50
   hour := total_secs / 3600
-  mins := (total_secs / 60) - (hour * 60)
-  sec := total_secs - (hour * 3600) - (mins * 60)
-  ctx[0] := (hour * 2048) + (mins * 32) + (sec / 2)
+  mins := total_secs / 60 - hour * 60
+  sec := total_secs - hour * 3600 - mins * 60
+  ctx[0] := hour * 2048 + mins * 32 + sec / 2
 ENDPROC
 
 
@@ -1904,14 +1904,14 @@ PROC gem_TextFontInit8(f:PTR TO textfont) IS NATIVE { struct TextFont *tf = (str
 PROC gem_CloseLibrary(base:VALUE) IS NATIVE { CloseLibrary((struct Library *)} base {); } ENDNATIVE
 
 -> Type cast helpers (avoid expr !!type in code, keep only in NATIVE return annotations)
-PROC asINT(v:VALUE) IS NATIVE { return (int)v; } ENDNATIVE !!INT
-PROC asLONG(v:VALUE) IS NATIVE { return (long)v; } ENDNATIVE !!LONG
-PROC asCHAR(v:VALUE) IS NATIVE { return (unsigned char)v; } ENDNATIVE !!CHAR
-PROC asPTR(v:VALUE) IS NATIVE { return (unsigned char*)v; } ENDNATIVE !!PTR TO CHAR
-PROC asWIN(v:VALUE) IS NATIVE { return (struct Window*)v; } ENDNATIVE !!PTR TO window
-PROC asBPTR(v:VALUE) IS NATIVE { return (BPTR)v; } ENDNATIVE !!BPTR
-PROC asAPTR(v:VALUE) IS NATIVE { return (APTR)v; } ENDNATIVE !!APTR
-PROC asFONT(v:VALUE) IS NATIVE { return (struct TextFont*)v; } ENDNATIVE !!PTR TO textfont
+PROC asINT(v:VALUE) IS NATIVE { (int)(} v {) } ENDNATIVE !!INT
+PROC asLONG(v:VALUE) IS NATIVE { (long)(} v {) } ENDNATIVE !!LONG
+PROC asCHAR(v:VALUE) IS NATIVE { (unsigned char)(} v {) } ENDNATIVE !!CHAR
+PROC asPTR(v:VALUE) IS NATIVE { (unsigned char*)(} v {) } ENDNATIVE !!PTR TO CHAR
+PROC asWIN(v:VALUE) IS NATIVE { (struct Window*)(} v {) } ENDNATIVE !!PTR TO window
+PROC asBPTR(v:VALUE) IS NATIVE { (BPTR)(} v {) } ENDNATIVE !!BPTR
+PROC asAPTR(v:VALUE) IS NATIVE { (APTR)(} v {) } ENDNATIVE !!APTR
+PROC asFONT(v:VALUE) IS NATIVE { (struct TextFont*)(} v {) } ENDNATIVE !!PTR TO textfont
 
 -> Intuition window helper wrappers
 PROC gem_CloseWindow(win:PTR TO window) IS NATIVE { CloseWindow((struct Window *)} win {); } ENDNATIVE
@@ -2460,7 +2460,7 @@ PROC gem_appl_write()
     next_tail := 0
   ENDIF
   IF next_tail <> gem_msg_head
-    gem_msg_push((dest_id * 256) + msg_len, gem_aes_id, msg_len)
+    gem_msg_push(dest_id * 256 + msg_len, gem_aes_id, msg_len)
     ctx[0] := 1
   ELSE
     ctx[0] := 0
@@ -5310,7 +5310,7 @@ PROC gem_init_font_8x16()
   -> Fill location table (char N starts at N*16 bytes)
   FOR i := 0 TO 255
     gem_font_loc_8x16[i * 2] := asCHAR(i * 16)
-    gem_font_loc_8x16[i * 2 + 1] := asCHAR(((i * 16) / 256))
+    gem_font_loc_8x16[i * 2 + 1] := asCHAR(i * 16 / 256)
   ENDFOR
 
   -> Atari ST 8x16 system font data (256 glyphs, 16 bytes each)
