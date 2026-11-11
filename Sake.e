@@ -1477,11 +1477,11 @@ CONST WM_FULLED = 13, WM_ARROWED = 14, WM_HSLID = 15
 CONST WM_VSLID = 16, WM_SIZED = 17, WM_MOVED = 18
 CONST WM_UNTOPPED = 19, WM_ONTOP = 20
 
--> GEM object types (from objc.h)
-CONST G_BOX = 0, G_TEXT = 1, G_BOXTEXT = 2, G_IMAGE = 3
-CONST G_USERDEF = 4, G_IBOX = 5, G_BUTTON = 6, G_BOXCHAR = 7
-CONST G_STRING = 8, G_FTEXT = 9, G_FBOXTEXT = 10, G_ICON = 11
-CONST G_TITLE = 25, G_MENU = 26
+-> GEM object types (standard Atari GEM 20..32)
+CONST G_BOX = 20, G_TEXT = 21, G_BOXTEXT = 22, G_IMAGE = 23
+CONST G_USERDEF = 24, G_IBOX = 25, G_BUTTON = 26, G_BOXCHAR = 27
+CONST G_STRING = 28, G_FTEXT = 29, G_FBOXTEXT = 30, G_ICON = 31
+CONST G_TITLE = 32
 CONST G_RBUTTON = 21, G_CHECKBOX = 22
 CONST G_SELECTED = 1
 
@@ -2385,6 +2385,7 @@ PROC gem_aes_dispatch()
     CASE 0; gem_rsrc_load()
     CASE 1; gem_rsrc_free()
     CASE 2; gem_rsrc_gaddr()
+    CASE 4; gem_rsrc_obfix()
     DEFAULT; ctx[0] := E_ERROR
     ENDSELECT
 
@@ -2682,12 +2683,18 @@ PROC gem_rsrc_load()
     unsigned char *data;
     int size;
     unsigned short *hdr;
-    int num_objects, num_trees, num_ti, num_ib, num_bb, num_frstr, num_frimg;
-    int obj_off, ti_off, ib_off, bb_off, frstr_off, frimg_off, trix_off, trix_ntree;
-    int obj_size, ti_size, i;
+    int num_objects, num_trees, num_ti, num_ib, num_bb;
+    int obj_off, ti_off, ib_off, bb_off, trix_off;
+    int i;
     unsigned long *tree_ptrs;
-    unsigned short *trix;
+    unsigned long *trix;
+
     fh = Open((STRPTR)fn, MODE_OLDFILE);
+    if (!fh) {
+      char fbuf[140];
+      snprintf(fbuf, sizeof(fbuf), "%s.RSC", (char *)fn);
+      fh = Open((STRPTR)fbuf, MODE_OLDFILE);
+    }
     if (!fh) { gem_rsc_data = 0; return; }
     size = Seek(fh, 0, OFFSET_END);
     Seek(fh, 0, OFFSET_BEGINNING);
@@ -2695,45 +2702,85 @@ PROC gem_rsrc_load()
     if (!data) { Close(fh); gem_rsc_data = 0; return; }
     Read(fh, data, size);
     Close(fh);
+
+    /* Atari ST RSHDR structure:
+     * hdr[0]: rsh_vrsn
+     * hdr[1]: rsh_object (offset to objects)
+     * hdr[2]: rsh_tedinfo (offset to tedinfos)
+     * hdr[3]: rsh_iconblk (offset to iconblks)
+     * hdr[4]: rsh_bitblk (offset to bitblks)
+     * hdr[5]: rsh_frstr
+     * hdr[6]: rsh_string
+     * hdr[7]: rsh_imdata
+     * hdr[8]: rsh_frimg
+     * hdr[9]: rsh_trindex (offset to tree index)
+     * hdr[10]: rsh_nobs (number of objects)
+     * hdr[11]: rsh_ntree (number of trees)
+     * hdr[12]: rsh_nted (number of tedinfos)
+     * hdr[13]: rsh_nib (number of iconblks)
+     * hdr[14]: rsh_nbb (number of bitblks)
+     */
     hdr = (unsigned short *)data;
-    num_objects = hdr[1]; num_trees = hdr[2]; num_ti = hdr[4];
-    num_ib = hdr[6]; num_bb = hdr[7]; num_frstr = hdr[8]; num_frimg = hdr[9];
-    obj_off = hdr[10]; ti_off = hdr[11]; ib_off = hdr[12];
-    bb_off = hdr[13]; frstr_off = hdr[14]; frimg_off = hdr[15];
-    trix_off = hdr[16]; trix_ntree = hdr[17];
-    if (trix_ntree > 0) num_trees = trix_ntree;
-    if (num_trees <= 0) { num_trees = num_objects > 0 ? 1 : 0; }
-    if (num_objects > 0 && ti_off > obj_off) obj_size = (ti_off - obj_off) / num_objects;
-    else obj_size = 24;
-    if (num_ti > 0 && ib_off > ti_off) ti_size = (ib_off - ti_off) / num_ti;
-    else ti_size = 0;
+    obj_off     = hdr[1];
+    ti_off      = hdr[2];
+    ib_off      = hdr[3];
+    bb_off      = hdr[4];
+    trix_off    = hdr[9];
+    num_objects = hdr[10];
+    num_trees   = hdr[11];
+    num_ti      = hdr[12];
+    num_ib      = hdr[13];
+    num_bb      = hdr[14];
+
+    /* 1. Relocate TEDINFOs (28 bytes each): te_ptext, te_ptmplt, te_pvalid */
+    for (i = 0; i < num_ti; i++) {
+      unsigned char *ti = data + ti_off + i * 28;
+      unsigned long p1 = *(unsigned long *)(ti + 0);
+      unsigned long p2 = *(unsigned long *)(ti + 4);
+      unsigned long p3 = *(unsigned long *)(ti + 8);
+      if (p1 > 0 && p1 < size) *(unsigned long *)(ti + 0) = (unsigned long)(data + p1);
+      if (p2 > 0 && p2 < size) *(unsigned long *)(ti + 4) = (unsigned long)(data + p2);
+      if (p3 > 0 && p3 < size) *(unsigned long *)(ti + 8) = (unsigned long)(data + p3);
+    }
+
+    /* 2. Relocate BITBLKs (14 bytes each): bi_pdata */
+    for (i = 0; i < num_bb; i++) {
+      unsigned char *bb = data + bb_off + i * 14;
+      unsigned long p = *(unsigned long *)(bb + 0);
+      if (p > 0 && p < size) *(unsigned long *)(bb + 0) = (unsigned long)(data + p);
+    }
+
+    /* 3. Relocate ICONBLKs (34 bytes each): ib_pmask, ib_pdata, ib_ptext */
+    for (i = 0; i < num_ib; i++) {
+      unsigned char *ib = data + ib_off + i * 34;
+      unsigned long p1 = *(unsigned long *)(ib + 0);
+      unsigned long p2 = *(unsigned long *)(ib + 4);
+      unsigned long p3 = *(unsigned long *)(ib + 8);
+      if (p1 > 0 && p1 < size) *(unsigned long *)(ib + 0) = (unsigned long)(data + p1);
+      if (p2 > 0 && p2 < size) *(unsigned long *)(ib + 4) = (unsigned long)(data + p2);
+      if (p3 > 0 && p3 < size) *(unsigned long *)(ib + 8) = (unsigned long)(data + p3);
+    }
+
+    /* 4. Relocate OBJECTs (24 bytes each): ob_spec at offset 12 */
     for (i = 0; i < num_objects; i++) {
-      unsigned char *obj = data + obj_off + i * obj_size;
-      unsigned short ot = *(unsigned short *)(obj + 6);
-      unsigned short spec = *(unsigned short *)(obj + 20);
+      unsigned char *obj = data + obj_off + i * 24;
+      unsigned short ot = *(unsigned short *)(obj + 6) & 0xFF;
+      unsigned long spec = *(unsigned long *)(obj + 12);
       if (spec > 0 && spec < size) {
-        if ((ot >= 8 && ot <= 13) || ot == 4 || ot == 5 || ot == 6)
-          *(unsigned long *)(obj + 20) = (unsigned long)(data + spec);
+        if (ot == 21 || ot == 22 || ot == 23 || ot == 26 ||
+            ot == 28 || ot == 29 || ot == 30 || ot == 31 || ot == 32) {
+          *(unsigned long *)(obj + 12) = (unsigned long)(data + spec);
+        }
       }
     }
-    if (ti_size > 0) {
-      for (i = 0; i < num_ti; i++) {
-        unsigned char *ti = data + ti_off + i * ti_size;
-        unsigned short p1, p2, p3;
-        p1 = *(unsigned short *)(ti + 0);
-        p2 = *(unsigned short *)(ti + 2);
-        p3 = *(unsigned short *)(ti + 4);
-        if (p1 > 0 && p1 < size) *(unsigned long *)(ti + 0) = (unsigned long)(data + p1);
-        if (p2 > 0 && p2 < size) *(unsigned long *)(ti + 2) = (unsigned long)(data + p2);
-        if (p3 > 0 && p3 < size) *(unsigned long *)(ti + 4) = (unsigned long)(data + p3);
-      }
-    }
-    trix = data + trix_off;
+
+    /* 5. Build tree pointer table from rsh_trindex (array of 32-bit offsets) */
+    trix = (unsigned long *)(data + trix_off);
     tree_ptrs = AllocMem(num_trees * 4, MEMF_CLEAR);
     if (tree_ptrs) {
       for (i = 0; i < num_trees; i++) {
-        unsigned short root_off = (trix_off > 0 && (unsigned long)(trix + i) < (unsigned long)(data + size)) ? trix[i] : (obj_off + i * obj_size);
-        if (root_off > 0 && (unsigned long)(data + root_off) < (unsigned long)(data + size))
+        unsigned long root_off = trix[i];
+        if (root_off > 0 && root_off < size)
           tree_ptrs[i] = (unsigned long)(data + root_off);
         else
           tree_ptrs[i] = 0;
@@ -2765,9 +2812,9 @@ PROC gem_rsrc_free()
 ENDPROC
 
 -> rsrc_gaddr() - Get address of resource object
--> type in int_in[0] (ctx[3]): 0=R_TREE, 1=R_OBJECT, 2=R_TEDINFO, 3=R_ICONBLK, 4=R_BITBLK, 5=R_FRSTR, 6=R_FRIMG, 7=R_USERBLK
+-> type in int_in[0] (ctx[3]): 0=R_TREE, 1=R_OBJECT, 2=R_TEDINFO, 3=R_ICONBLK, 4=R_BITBLK, 5=R_STRING
 -> index in int_in[1] (ctx[4])
--> address returned in addr_out[0]
+-> address returned in addr_out[0] (ctx[1])
 PROC gem_rsrc_gaddr()
   DEF gtype, gidx, result, obj_ptr
   gtype := ctx[3]
@@ -2776,6 +2823,7 @@ PROC gem_rsrc_gaddr()
   obj_ptr := 0
   IF gem_rsc_data <> 0
     IF gtype = 0
+      -> R_TREE: lookup in tree_table
       IF gidx >= 0 AND gidx < gem_rsc_tree_count AND gem_rsc_tree_table <> 0
         NATIVE {
           unsigned long *tptrs = (unsigned long *)gem_rsc_tree_table;
@@ -2785,31 +2833,53 @@ PROC gem_rsrc_gaddr()
         IF obj_ptr <> 0 THEN result := 1
       ENDIF
     ELSE
-      IF gtype = 1
-        -> R_OBJECT: index is global object index within the RSC
-        -> For now, calculate from tree table (tree 0 object index)
-        IF gidx >= 0 AND gem_rsc_tree_table <> 0
-          NATIVE {
-            unsigned long *tptrs = (unsigned long *)gem_rsc_tree_table;
-            gem_rsrc_gaddr_result = tptrs[0];
-          } ENDNATIVE
-          obj_ptr := gem_rsrc_gaddr_result
-          IF obj_ptr <> 0
-            NATIVE {
-              unsigned char *obj = (unsigned char *)obj_ptr;
-              unsigned short next = *(unsigned short *)(obj + 0);
-              if (next != 0) gem_rsrc_gaddr_result = (unsigned long)(obj + next);
-              else gem_rsrc_gaddr_result = 0;
-            } ENDNATIVE
-            obj_ptr := gem_rsrc_gaddr_result
-          ENDIF
-          result := 1
-        ENDIF
-      ENDIF
+      -> Other resource types: calculate directly from relocated RSC data
+      NATIVE {
+        unsigned char *data = (unsigned char *)gem_rsc_data;
+        unsigned short *hdr = (unsigned short *)data;
+        int off = 0;
+        if (gtype == 1) off = hdr[1] + gidx * 24;       /* R_OBJECT */
+        else if (gtype == 2) off = hdr[2] + gidx * 28;  /* R_TEDINFO */
+        else if (gtype == 3) off = hdr[3] + gidx * 34;  /* R_ICONBLK */
+        else if (gtype == 4) off = hdr[4] + gidx * 14;  /* R_BITBLK */
+        else if (gtype == 5) off = hdr[6];              /* R_STRING */
+        if (off > 0 && off < gem_rsc_size) {
+          gem_rsrc_gaddr_result = (unsigned long)(data + off);
+          result = 1;
+        } else {
+          gem_rsrc_gaddr_result = 0;
+        }
+      } ENDNATIVE
+      obj_ptr := gem_rsrc_gaddr_result
     ENDIF
   ENDIF
   ctx[1] := obj_ptr
   ctx[0] := result
+ENDPROC
+
+-> rsrc_obfix() - Convert object character coordinates to pixel coordinates
+-> tree in addr_in[0] (ctx[8]), obj_idx in int_in[0] (ctx[3])
+PROC gem_rsrc_obfix()
+  DEF tree, obj_idx
+  tree := ctx[8]
+  obj_idx := ctx[3]
+  IF tree <> 0 AND obj_idx >= 0
+    NATIVE {
+      struct GEMObject { short next, head, tail; unsigned short flags, state, type; long spec; short x, y, w, h; };
+      struct GEMObject *obj = (struct GEMObject *)tree + obj_idx;
+      short char_w = 8, char_h = 16;
+      short x_low = obj->x & 0xFF, x_hi = (signed char)(obj->x >> 8);
+      short y_low = obj->y & 0xFF, y_hi = (signed char)(obj->y >> 8);
+      short w_low = obj->w & 0xFF, w_hi = (signed char)(obj->w >> 8);
+      short h_low = obj->h & 0xFF, h_hi = (signed char)(obj->h >> 8);
+
+      obj->x = x_low * char_w + x_hi;
+      obj->y = y_low * char_h + y_hi;
+      obj->w = w_low * char_w + w_hi;
+      obj->h = h_low * char_h + h_hi;
+    } ENDNATIVE
+  ENDIF
+  ctx[0] := 1
 ENDPROC
 
 DEF gem_rsrc_gaddr_result
@@ -3150,81 +3220,27 @@ PROC gem_draw_tree(tree:VALUE, root_obj:VALUE, max_depth:VALUE)
       short oy = objtree[i].y;
       short ow = objtree[i].w;
       short oh = objtree[i].h;
-      switch (objtree[i].type) {
-        case 0: /* G_BOX */
-        case 5: /* G_IBOX */
-          SetAPen(rp, 0);
-          RectFill(rp, ox, oy, ox + ow - 1, oy + oh - 1);
-          SetAPen(rp, 1);
-          Move(rp, ox, oy);
-          Draw(rp, ox + ow - 1, oy);
-          Draw(rp, ox + ow - 1, oy + oh - 1);
-          Draw(rp, ox, oy + oh - 1);
-          Draw(rp, ox, oy);
-          break;
-        case 21: /* G_RBUTTON */
-          {
-            short cx = ox + 6;
-            short cy = oy + oh / 2;
-            short r = 5;
-            int sel = (objtree[i].state & 1);
-            /* Draw circle outline */
+      unsigned short ot = objtree[i].type & 0xFF;
+      int sel = (objtree[i].state & 1);
+      switch (ot) {
+        case 20: /* G_BOX */
+        case 25: /* G_IBOX */
+          if (ot == 20) {
+            SetAPen(rp, 0);
+            RectFill(rp, ox, oy, ox + ow - 1, oy + oh - 1);
             SetAPen(rp, 1);
-            Move(rp, cx + r, cy);
-            {
-              int angle;
-              for (angle = 0; angle <= 360; angle += 15) {
-                double rad = angle * 3.14159265 / 180.0;
-                short px = cx + (int)(r * cos(rad));
-                short py = cy + (int)(r * sin(rad));
-                if (angle == 0) Move(rp, px, py);
-                else Draw(rp, px, py);
-              }
-            }
-            /* Fill if selected */
-            if (sel) {
-              SetAPen(rp, 1);
-              RectFill(rp, cx - r/2, cy - r/2, cx + r/2, cy + r/2);
-            }
-            /* Draw label text */
-            if (objtree[i].spec) {
-              SetAPen(rp, 1);
-              Move(rp, ox + 16, cy + 4);
-              Text(rp, (STRPTR)objtree[i].spec, strlen((STRPTR)objtree[i].spec));
-            }
+            Move(rp, ox, oy);
+            Draw(rp, ox + ow - 1, oy);
+            Draw(rp, ox + ow - 1, oy + oh - 1);
+            Draw(rp, ox, oy + oh - 1);
+            Draw(rp, ox, oy);
           }
           break;
-        case 22: /* G_CHECKBOX */
-          {
-            short bx = ox;
-            short by = oy + (oh - 10) / 2;
-            short bsz = 10;
-            int sel = (objtree[i].state & 1);
-            /* Draw checkbox square */
-            SetAPen(rp, 1);
-            Move(rp, bx, by);
-            Draw(rp, bx + bsz, by);
-            Draw(rp, bx + bsz, by + bsz);
-            Draw(rp, bx, by + bsz);
-            Draw(rp, bx, by);
-            /* If selected, draw checkmark */
-            if (sel) {
-              Move(rp, bx + 2, by + 5);
-              Draw(rp, bx + 4, by + 7);
-              Draw(rp, bx + 8, by + 2);
-            }
-            /* Draw label text */
-            if (objtree[i].spec) {
-              SetAPen(rp, 1);
-              Move(rp, ox + 14, by + 8);
-              Text(rp, (STRPTR)objtree[i].spec, strlen((STRPTR)objtree[i].spec));
-            }
-          }
-          break;
-        case 6: /* G_BUTTON */
-          {
-            int sel = (objtree[i].state & 1);
-            /* Draw button rectangle */
+        case 21: /* G_TEXT */
+        case 22: /* G_BOXTEXT */
+        case 29: /* G_FTEXT */
+        case 30: /* G_FBOXTEXT */
+          if (ot == 22 || ot == 30) {
             SetAPen(rp, sel ? 1 : 0);
             RectFill(rp, ox, oy, ox + ow - 1, oy + oh - 1);
             SetAPen(rp, 1);
@@ -3233,22 +3249,52 @@ PROC gem_draw_tree(tree:VALUE, root_obj:VALUE, max_depth:VALUE)
             Draw(rp, ox + ow - 1, oy + oh - 1);
             Draw(rp, ox, oy + oh - 1);
             Draw(rp, ox, oy);
-            /* Draw label centered */
-            if (objtree[i].spec) {
-              int len = strlen((STRPTR)objtree[i].spec);
-              int tx = ox + (ow - len * 8) / 2;
-              int ty = oy + (oh + 8) / 2;
-              SetAPen(rp, sel ? 0 : 1);
-              Move(rp, tx, ty);
-              Text(rp, (STRPTR)objtree[i].spec, len);
+          }
+          if (objtree[i].spec) {
+            char *text_str = *(char **)(objtree[i].spec);
+            if (text_str && (unsigned long)text_str > 1024) {
+              int len = strlen(text_str);
+              int ty = oy + (oh > 12 ? (oh + 10)/2 : oh - 2);
+              SetAPen(rp, (ot == 22 || ot == 30) ? (sel ? 0 : 1) : 1);
+              Move(rp, ox + 2, ty);
+              Text(rp, (STRPTR)text_str, len);
             }
           }
           break;
-        case 8: /* G_STRING */
-          if (objtree[i].spec) {
+        case 26: /* G_BUTTON */
+          {
+            SetAPen(rp, sel ? 1 : 0);
+            RectFill(rp, ox, oy, ox + ow - 1, oy + oh - 1);
             SetAPen(rp, 1);
-            Move(rp, ox + 2, oy + oh - 3);
-            Text(rp, (STRPTR)objtree[i].spec, strlen((STRPTR)objtree[i].spec));
+            Move(rp, ox, oy);
+            Draw(rp, ox + ow - 1, oy);
+            Draw(rp, ox + ow - 1, oy + oh - 1);
+            Draw(rp, ox, oy + oh - 1);
+            Draw(rp, ox, oy);
+            if (objtree[i].spec) {
+              char *btn_str = (char *)objtree[i].spec;
+              if (btn_str && (unsigned long)btn_str > 1024) {
+                int len = strlen(btn_str);
+                int tx = ox + (ow > len * 8 ? (ow - len * 8) / 2 : 2);
+                int ty = oy + (oh > 12 ? (oh + 10) / 2 : oh - 2);
+                SetAPen(rp, sel ? 0 : 1);
+                Move(rp, tx, ty);
+                Text(rp, (STRPTR)btn_str, len);
+              }
+            }
+          }
+          break;
+        case 28: /* G_STRING */
+        case 32: /* G_TITLE */
+          if (objtree[i].spec) {
+            char *s_str = (char *)objtree[i].spec;
+            if (s_str && (unsigned long)s_str > 1024) {
+              int len = strlen(s_str);
+              int ty = oy + (oh > 12 ? (oh + 10)/2 : oh - 2);
+              SetAPen(rp, 1);
+              Move(rp, ox + 2, ty);
+              Text(rp, (STRPTR)s_str, len);
+            }
           }
           break;
         default:
