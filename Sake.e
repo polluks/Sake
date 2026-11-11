@@ -2044,8 +2044,18 @@ ENDPROC (gadtools_base <> 0)
 PROC gem_OpenGadTools() IS NATIVE { extern unsigned long gadtools_base; gadtools_base = (unsigned long)OpenLibrary("gadtools.library", 0); } ENDNATIVE
 PROC gem_OpenGadTools13() IS NATIVE { extern unsigned long gadtools_base; gadtools_base = (unsigned long)OpenLibrary("gadtools13.library", 0); } ENDNATIVE
 
-PROC gem_OpenAsl() IS NATIVE { extern unsigned long asl_base; asl_base = (unsigned long)OpenLibrary("asl.library", 37); } ENDNATIVE
-PROC gem_FreeAsl() IS NATIVE { extern unsigned long asl_base; if (asl_base) { CloseLibrary((struct Library *)asl_base); asl_base = 0; } } ENDNATIVE
+PROC gem_OpenAsl() IS NATIVE {
+  extern unsigned long asl_base, reqtools_base;
+  asl_base = (unsigned long)OpenLibrary("asl.library", 37);
+  if (!asl_base) {
+    reqtools_base = (unsigned long)OpenLibrary("reqtools.library", 38);
+  }
+} ENDNATIVE
+PROC gem_FreeAsl() IS NATIVE {
+  extern unsigned long asl_base, reqtools_base;
+  if (asl_base) { CloseLibrary((struct Library *)asl_base); asl_base = 0; }
+  if (reqtools_base) { CloseLibrary((struct Library *)reqtools_base); reqtools_base = 0; }
+} ENDNATIVE
 
 
 -> ---------------------------------------------------------------------------
@@ -3579,28 +3589,47 @@ PROC gem_fsel_exinput()
     char *file = (char *)file_ptr;
     long ok = 0;
 
-    if (!asl_base) { ctx[1] = 0; return; }
-
-    fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Select File", TAG_DONE);
-    if (fr) {
-      if (AslRequestTags(fr, TAG_DONE)) {
-        ok = 1;
-        if (fr->fr_Drawer) {
-          int len = strlen(fr->fr_Drawer);
-          if (len < 126) {
-            strcpy(path, fr->fr_Drawer);
-            if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
-              path[len] = '/';
-              path[len+1] = 0;
+    extern unsigned long reqtools_base;
+    if (asl_base) {
+      fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Select File", TAG_DONE);
+      if (fr) {
+        if (AslRequestTags(fr, TAG_DONE)) {
+          ok = 1;
+          if (fr->fr_Drawer) {
+            int len = strlen(fr->fr_Drawer);
+            if (len < 126) {
+              strcpy(path, fr->fr_Drawer);
+              if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+                path[len] = '/';
+                path[len+1] = 0;
+              }
+            }
+          }
+          if (fr->fr_File) {
+            strncpy(file, fr->fr_File, 12);
+            file[12] = 0;
+          }
+        }
+        FreeAslRequest(fr);
+      }
+    } else if (reqtools_base) {
+      struct rtFileRequester *rfr = (struct rtFileRequester *)rtAllocRequest(RT_FILEREQ, NULL);
+      if (rfr) {
+        if (rtFileRequest(rfr, file, "Select File", TAG_DONE)) {
+          ok = 1;
+          if (rfr->Dir) {
+            int len = strlen(rfr->Dir);
+            if (len < 126) {
+              strcpy(path, rfr->Dir);
+              if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+                path[len] = '/';
+                path[len+1] = 0;
+              }
             }
           }
         }
-        if (fr->fr_File) {
-          strncpy(file, fr->fr_File, 12);
-          file[12] = 0;
-        }
+        rtFreeRequest((APTR)rfr);
       }
-      FreeAslRequest(fr);
     }
     ctx[1] = ok;
   } ENDNATIVE
@@ -3624,28 +3653,47 @@ PROC gem_fsel_exoutput()
     char *file = (char *)file_ptr;
     long ok = 0;
 
-    if (!asl_base) { ctx[1] = 0; return; }
-
-    fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Save File", TAG_DONE);
-    if (fr) {
-      if (AslRequestTags(fr, TAG_DONE)) {
-        ok = 1;
-        if (fr->fr_Drawer) {
-          int len = strlen(fr->fr_Drawer);
-          if (len < 126) {
-            strcpy(path, fr->fr_Drawer);
-            if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
-              path[len] = '/';
-              path[len+1] = 0;
+    extern unsigned long reqtools_base;
+    if (asl_base) {
+      fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Save File", TAG_DONE);
+      if (fr) {
+        if (AslRequestTags(fr, TAG_DONE)) {
+          ok = 1;
+          if (fr->fr_Drawer) {
+            int len = strlen(fr->fr_Drawer);
+            if (len < 126) {
+              strcpy(path, fr->fr_Drawer);
+              if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+                path[len] = '/';
+                path[len+1] = 0;
+              }
+            }
+          }
+          if (fr->fr_File) {
+            strncpy(file, fr->fr_File, 12);
+            file[12] = 0;
+          }
+        }
+        FreeAslRequest(fr);
+      }
+    } else if (reqtools_base) {
+      struct rtFileRequester *rfr = (struct rtFileRequester *)rtAllocRequest(RT_FILEREQ, NULL);
+      if (rfr) {
+        if (rtFileRequest(rfr, file, "Save File", TAG_DONE)) {
+          ok = 1;
+          if (rfr->Dir) {
+            int len = strlen(rfr->Dir);
+            if (len < 126) {
+              strcpy(path, rfr->Dir);
+              if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+                path[len] = '/';
+                path[len+1] = 0;
+              }
             }
           }
         }
-        if (fr->fr_File) {
-          strncpy(file, fr->fr_File, 12);
-          file[12] = 0;
-        }
+        rtFreeRequest((APTR)rfr);
       }
-      FreeAslRequest(fr);
     }
     ctx[1] = ok;
   } ENDNATIVE

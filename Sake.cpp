@@ -2537,6 +2537,8 @@ extern long gem_scrn_w; extern long gem_scrn_h;   // Virtual screen dimensions
 static const char ver_tag[] = "\0$VER: Sake 1.0 (28.10.2026)";
 extern long gadtools_base;            // gadtools.library base (opened at runtime)
 extern long asl_base;                 // asl.library base (opened at runtime)
+long reqtools_base;            // reqtools.library base
+extern long reqtools_base;            // reqtools.library base
 
 // Window info structure
 extern long gem_wind_kind[MAX_WINDOWS];
@@ -2933,6 +2935,7 @@ long gem_aes_global[32]; // AES global array
 long gem_scrn_w; long gem_scrn_h;   // Virtual screen dimensions
 long gadtools_base;            // gadtools.library base (opened at runtime)
 long asl_base;                 // asl.library base (opened at runtime)
+long reqtools_base;            // reqtools.library base
 
 // Window info structure
 long gem_wind_kind[MAX_WINDOWS];
@@ -5321,32 +5324,51 @@ void gem_fsel_exinput() {
   long path_ptr = ctx[8];
   long file_ptr = ctx[9];
   if (!path_ptr || !file_ptr) { ctx[0] = 0; ctx[1] = 0; return; }
-  extern unsigned long asl_base;
+  extern unsigned long asl_base, reqtools_base;
   struct FileRequester *fr;
   char *path = (char *)path_ptr;
   char *file = (char *)file_ptr;
   long ok = 0;
-  if (!asl_base) { ctx[1] = 0; return; }
-  fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Select File", TAG_DONE);
-  if (fr) {
-    if (AslRequestTags(fr, TAG_DONE)) {
-      ok = 1;
-      if (fr->fr_Drawer) {
-        int len = strlen(fr->fr_Drawer);
-        if (len < 126) {
-          strcpy(path, fr->fr_Drawer);
-          if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
-            path[len] = '/';
-            path[len+1] = 0;
+  if (asl_base) {
+    fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Select File", TAG_DONE);
+    if (fr) {
+      if (AslRequestTags(fr, TAG_DONE)) {
+        ok = 1;
+        if (fr->fr_Drawer) {
+          int len = strlen(fr->fr_Drawer);
+          if (len < 126) {
+            strcpy(path, fr->fr_Drawer);
+            if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+              path[len] = '/';
+              path[len+1] = 0;
+            }
+          }
+        }
+        if (fr->fr_File) {
+          strncpy(file, fr->fr_File, 12);
+          file[12] = 0;
+        }
+      }
+      FreeAslRequest(fr);
+    }
+  } else if (reqtools_base) {
+    struct rtFileRequester *rfr = (struct rtFileRequester *)rtAllocRequest(RT_FILEREQ, NULL);
+    if (rfr) {
+      if (rtFileRequest(rfr, file, "Select File", TAG_DONE)) {
+        ok = 1;
+        if (rfr->Dir) {
+          int len = strlen(rfr->Dir);
+          if (len < 126) {
+            strcpy(path, rfr->Dir);
+            if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+              path[len] = '/';
+              path[len+1] = 0;
+            }
           }
         }
       }
-      if (fr->fr_File) {
-        strncpy(file, fr->fr_File, 12);
-        file[12] = 0;
-      }
+      rtFreeRequest((APTR)rfr);
     }
-    FreeAslRequest(fr);
   }
   ctx[1] = ok;
   return;
@@ -5356,32 +5378,51 @@ void gem_fsel_exoutput() {
   long path_ptr = ctx[8];
   long file_ptr = ctx[9];
   if (!path_ptr || !file_ptr) { ctx[0] = 0; ctx[1] = 0; return; }
-  extern unsigned long asl_base;
+  extern unsigned long asl_base, reqtools_base;
   struct FileRequester *fr;
   char *path = (char *)path_ptr;
   char *file = (char *)file_ptr;
   long ok = 0;
-  if (!asl_base) { ctx[1] = 0; return; }
-  fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Save File", TAG_DONE);
-  if (fr) {
-    if (AslRequestTags(fr, TAG_DONE)) {
-      ok = 1;
-      if (fr->fr_Drawer) {
-        int len = strlen(fr->fr_Drawer);
-        if (len < 126) {
-          strcpy(path, fr->fr_Drawer);
-          if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
-            path[len] = '/';
-            path[len+1] = 0;
+  if (asl_base) {
+    fr = AllocAslRequestTags(ASL_FileRequest, ASLFR_TitleText, "Save File", TAG_DONE);
+    if (fr) {
+      if (AslRequestTags(fr, TAG_DONE)) {
+        ok = 1;
+        if (fr->fr_Drawer) {
+          int len = strlen(fr->fr_Drawer);
+          if (len < 126) {
+            strcpy(path, fr->fr_Drawer);
+            if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+              path[len] = '/';
+              path[len+1] = 0;
+            }
+          }
+        }
+        if (fr->fr_File) {
+          strncpy(file, fr->fr_File, 12);
+          file[12] = 0;
+        }
+      }
+      FreeAslRequest(fr);
+    }
+  } else if (reqtools_base) {
+    struct rtFileRequester *rfr = (struct rtFileRequester *)rtAllocRequest(RT_FILEREQ, NULL);
+    if (rfr) {
+      if (rtFileRequest(rfr, file, "Save File", TAG_DONE)) {
+        ok = 1;
+        if (rfr->Dir) {
+          int len = strlen(rfr->Dir);
+          if (len < 126) {
+            strcpy(path, rfr->Dir);
+            if (len > 0 && path[len-1] != ':' && path[len-1] != '/') {
+              path[len] = '/';
+              path[len+1] = 0;
+            }
           }
         }
       }
-      if (fr->fr_File) {
-        strncpy(file, fr->fr_File, 12);
-        file[12] = 0;
-      }
+      rtFreeRequest((APTR)rfr);
     }
-    FreeAslRequest(fr);
   }
   ctx[1] = ok;
   return;

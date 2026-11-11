@@ -4,7 +4,7 @@ Sake maps Atari ST system calls to native AmigaOS libraries:
 - **GEMDOS** (Trap #1) -> `dos.library` / `exec.library`
 - **BIOS** (Trap #13) -> AmigaOS equivalents
 - **XBIOS** (Trap #14) -> AmigaOS equivalents
-- **AES** (Trap #2, D0=$C8) -> `intuition.library` / `gadtools.library` / `reqtools.library`
+- **AES** (Trap #2, D0=$C8) -> `intuition.library` / `gadtools.library` / `asl.library` (`reqtools.library` fallback)
 - **VDI** (Trap #2, D0=$C9) -> `graphics.library`
 
 ## Build
