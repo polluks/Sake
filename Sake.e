@@ -897,18 +897,8 @@ PROC load_prg(filename:PTR TO CHAR)
       fh := Open(fname_buf, 1005)
       IF fh = 0
         StrCopy(fname_buf, filename)
-        StrAdd(fname_buf, '.prg')
+        StrAdd(fname_buf, '.TOS')
         fh := Open(fname_buf, 1005)
-        IF fh = 0
-          StrCopy(fname_buf, filename)
-          StrAdd(fname_buf, '.TOS')
-          fh := Open(fname_buf, 1005)
-          IF fh = 0
-            StrCopy(fname_buf, filename)
-            StrAdd(fname_buf, '.tos')
-            fh := Open(fname_buf, 1005)
-          ENDIF
-        ENDIF
       ENDIF
     ENDIF
   ENDIF
@@ -5750,13 +5740,14 @@ PROC main()
     ENDIF
   ELSE
     PutStr('Sake Atari Emulator\n')
-    PutStr('Loading GEMBENCH.PRG...\n')
-    addr := load_prg('GEMBENCH.PRG')
+    PutStr('Loading: GEMBENCH\n')
+    addr := load_prg('GEMBENCH')
     IF addr
-      PutStr('GEMBENCH loaded at $')
+      PutStr('Loaded at $')
       Printf('%lx\n', addr)
+      PutStr('\n')
     ELSE
-      PutStr('Failed to load GEMBENCH.PRG\n')
+      PutStr('Failed to load GEMBENCH\n')
     ENDIF
   ENDIF
   remove_traps()

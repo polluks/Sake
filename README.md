@@ -21,7 +21,7 @@ Loads an Atari ST PRG file into memory. File extension is optional.
 
     Sake
 
-Runs the built-in test suite (GEMDOS function tests).
+Runs GEMBENCH.
 
 ![Sake running GEMBENCH](gembench_screenshot.png)
 
