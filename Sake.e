@@ -2069,7 +2069,7 @@ CONST COOKIE_SIZE = 8, COOKIE_JAR_MAX = 64
 
 -> Initialize the cookie jar with standard entries
 PROC gem_init_cookie_jar()
-  DEF jar_ptr
+  DEF jar_ptr, cpu_val, fpu_val, attn_flags
   gem_cookie_max := COOKIE_JAR_MAX
   gem_cookie_count := 0
   -> Allocate cookie jar: (max+1) entries * 8 bytes each (extra for sentinel)
@@ -2081,15 +2081,39 @@ PROC gem_init_cookie_jar()
   gem_cookie_jar := jar_ptr
   -> Set sentinel: NULL id = 0, value = max capacity
   gem_cookie_set_sentinel()
-  -> Add standard Atari ST cookies
-  -> _CPU: CPU type (0 = 68000)
-  gem_cookie_add('_CPU', 0)
-  -> _VDO: video system (1 = ST)
+  -> Query ExecBase AttnFlags (address $0128 in ExecBase)
+  NATIVE {
+    extern struct ExecBase *SysBase;
+    unsigned short attn = SysBase ? SysBase->AttnFlags : 0;
+    attn_flags = attn;
+    if (attn & (1 << 3)) {       /* AFF_68040 */
+      cpu_val = 40;
+    } else if (attn & (1 << 2)) { /* AFF_68030 */
+      cpu_val = 30;
+    } else if (attn & (1 << 1)) { /* AFF_68020 */
+      cpu_val = 20;
+    } else if (attn & (1 << 0)) { /* AFF_68010 */
+      cpu_val = 10;
+    } else {
+      cpu_val = 0;               /* 68000 */
+    }
+
+    if (attn & (1 << 6)) {        /* AFF_FPU40 */
+      fpu_val = (4 << 16) | 1;    /* 68040 internal FPU */
+    } else if (attn & (1 << 5)) { /* AFF_68882 */
+      fpu_val = (2 << 16) | 1;    /* 68882 */
+    } else if (attn & (1 << 4)) { /* AFF_68881 */
+      fpu_val = (1 << 16) | 1;    /* 68881 */
+    } else {
+      fpu_val = 0;                /* no FPU */
+    }
+  } ENDNATIVE
+
+  -> Add standard Atari ST cookies detected from Exec
+  gem_cookie_add('_CPU', cpu_val)
   gem_cookie_add('_VDO', 1)
-  -> _MCH: machine type (0 = ST)
   gem_cookie_add('_MCH', 0)
-  -> _FPU: FPU type (0 = none)
-  gem_cookie_add('_FPU', 0)
+  gem_cookie_add('_FPU', fpu_val)
   -> Sake emulator cookie
   gem_cookie_add('Sake', 1)
 ENDPROC
