@@ -5078,28 +5078,15 @@ try {
     }
   } else {
     PutStr("Sake Atari Emulator\n" );
-    PutStr("Testing...\n" );
-
-    // Test Cconws ($09): write a string via direct call
-    ctx[8] = (long)  return (unsigned char*)v; ;
-    temp_string[0] = 72; temp_string[1] = 101; temp_string[2] = 108; temp_string[3] = 108; temp_string[4] = 111;
-    temp_string[5] = 0;
-    gemdos_cconws();
-
-    // Test Dgetdrv ($0F)
-    gemdos_dgetdrv();
-    PutStr("Default drive: " );
-    Printf("%%ld\n" ,(ULONG) ctx[0] );
-
-    // Test Tgetdate ($31) and Tgettime ($33)
-    gemdos_tgetdate();
-    gemdos_tgettime();
-    PutStr("Date: " );
-    Printf("%%ld" ,(ULONG) ctx[0] );
-    PutStr(", Time: " );
-    Printf("%%ld\n" ,(ULONG) ctx[0] );
-
-    PutStr("\nAll GEMDOS functions completed\n" );
+    PutStr("Loading: GEMBENCH\n" );
+    addr = load_prg("GEMBENCH" );
+    if (addr ) {
+      PutStr("Loaded at $" );
+      Printf("%lx\n", addr );
+      PutStr("\n" );
+    } else {
+      PutStr("Failed to load GEMBENCH\n" );
+    }
   }
   remove_traps();
 } catch(...) {}

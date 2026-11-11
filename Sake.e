@@ -5740,13 +5740,14 @@ PROC main()
     ENDIF
   ELSE
     PutStr('Sake Atari Emulator\n')
-    PutStr('Loading GEMBENCH.PRG...\n')
-    addr := load_prg('GEMBENCH.PRG')
+    PutStr('Loading: GEMBENCH\n')
+    addr := load_prg('GEMBENCH')
     IF addr
-      PutStr('GEMBENCH loaded at $')
+      PutStr('Loaded at $')
       Printf('%lx\n', addr)
+      PutStr('\n')
     ELSE
-      PutStr('Failed to load GEMBENCH.PRG\n')
+      PutStr('Failed to load GEMBENCH\n')
     ENDIF
   ENDIF
   remove_traps()
