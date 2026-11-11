@@ -2081,7 +2081,36 @@ PROC gem_init_cookie_jar()
   gem_cookie_jar := jar_ptr
   -> Set sentinel: NULL id = 0, value = max capacity
   gem_cookie_set_sentinel()
-  -> Query ExecBase AttnFlags (address $0128 in ExecBase)
+#ifdef EVO_3_4_0
+  -> In pure AmigaE (E-VO), read AttnFlags directly from execbase ($0128)
+  IF execbase
+    attn_flags := Int(execbase + $0128)
+  ELSE
+    attn_flags := 0
+  ENDIF
+  IF (attn_flags AND 8) <> 0       -> AFF_68040 (bit 3)
+    cpu_val := 40
+  ELSEIF (attn_flags AND 4) <> 0   -> AFF_68030 (bit 2)
+    cpu_val := 30
+  ELSEIF (attn_flags AND 2) <> 0   -> AFF_68020 (bit 1)
+    cpu_val := 20
+  ELSEIF (attn_flags AND 1) <> 0   -> AFF_68010 (bit 0)
+    cpu_val := 10
+  ELSE
+    cpu_val := 0                    -> 68000
+  ENDIF
+
+  IF (attn_flags AND 64) <> 0      -> AFF_FPU40 (bit 6)
+    fpu_val := (4 << 16) OR 1
+  ELSEIF (attn_flags AND 32) <> 0  -> AFF_68882 (bit 5)
+    fpu_val := (2 << 16) OR 1
+  ELSEIF (attn_flags AND 16) <> 0  -> AFF_68881 (bit 4)
+    fpu_val := (1 << 16) OR 1
+  ELSE
+    fpu_val := 0
+  ENDIF
+#else
+  -> Query ExecBase AttnFlags via PortablE NATIVE
   NATIVE {
     extern struct ExecBase *SysBase;
     unsigned short attn = SysBase ? SysBase->AttnFlags : 0;
@@ -2108,6 +2137,7 @@ PROC gem_init_cookie_jar()
       fpu_val = 0;                /* no FPU */
     }
   } ENDNATIVE
+#endif
 
   -> Add standard Atari ST cookies detected from Exec
   gem_cookie_add('_CPU', cpu_val)
